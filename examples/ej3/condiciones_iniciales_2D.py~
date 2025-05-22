@@ -1,0 +1,275 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# ======================= FUNCIONES MODIFICADAS PARA 2D =======================
+def generar_lamina_puntos_2D(punto_inicial, ancho, altura, espacio, angulo=0):
+    """Genera una lámina de puntos en 2D (plano X-Z)"""
+    angulo_rad = np.radians(angulo)
+    
+    # Matriz de rotación 2D
+    rot = np.array([
+        [np.cos(angulo_rad), -np.sin(angulo_rad)],
+        [np.sin(angulo_rad), np.cos(angulo_rad)]
+    ])
+    
+    # Generar malla de puntos
+    num_x = int(ancho/espacio) + 1
+    num_z = int(altura/espacio) + 1
+    
+    puntos = []
+    for i in range(num_x):
+        for j in range(num_z):
+            # Coordenadas locales sin rotación
+            x = i * espacio
+            z = j * espacio
+            
+            # Aplicar rotación
+            x_rot, z_rot = rot @ np.array([x, z])
+            
+            # Coordenadas globales (Y=0)
+            punto = np.array([
+                punto_inicial[0] + x_rot,
+                0.0,  # Eliminamos coordenada Y
+                punto_inicial[2] + z_rot
+            ])
+            puntos.append(punto)
+    
+    return np.array(puntos)
+
+def generar_bloque_2D(punto_inicial, ancho, altura, espacio):
+    """Genera un bloque fluido en 2D (X-Z)"""
+    num_x = int(ancho/espacio) + 1
+    num_z = int(altura/espacio) + 1
+    
+    puntos = []
+    for i in range(num_x):
+        for j in range(num_z):
+            punto = np.array([
+                punto_inicial[0] + i * espacio,
+                0.0,  # Y siempre cero
+                punto_inicial[2] + j * espacio
+            ])
+            puntos.append(punto)
+    
+    return np.array(puntos)
+
+# ======================= FUNCIÓN PARA GENERAR SNAPSHOT 2D =======================
+def generar_sph_snapshot_2D(X_topo, Z_topo, X_fluido, Z_fluido, viscFluid=0.001002, 
+                           viscWall=0.00, deltaf=1, ddx=1, ht=1, filename='snapshot_000'):
+    # Constantes físicas (ajustadas para 2D)
+    g = 9.82
+    gamma = 7.0
+    beta = 25
+    c = beta * np.sqrt(2. * g * ht)
+    rho0 = 1000.0
+    b = rho0 * c**2 / gamma
+    
+    # Número de partículas
+    num_wall = len(X_topo)
+    num_fluid = len(X_fluido)
+    total = num_wall + num_fluid
+
+    paso_tiempo_Courant_v = 0.5 * (deltaf) / ( c + np.sqrt(2. * g * ht)  )
+    mu = viscFluid
+    if viscFluid > viscWall:
+        mu = viscWall
+    paso_tiempo_Courant_mu = 0.5 * (deltaf**2) / ( mu  +0.0000001)  
+    print('delta fluid = ',deltaf)
+    print('viscFluid = ', viscFluid)
+    print('viscWall = ', viscWall)
+    print('mu = ', mu)
+    print('Paso de tiempo Courant:v = ',paso_tiempo_Courant_v)
+    print('Paso de tiempo Courant:mu = ',paso_tiempo_Courant_mu)
+    
+    # Inicializar arrays
+    mass = np.full(total, rho0 * deltaf**2)  # Masa 2D (área)
+    itype = np.concatenate([np.ones(num_fluid), -np.ones(num_wall)])
+    
+    # Calcular presión y densidad
+    pressure = np.zeros(total)
+    rho = np.zeros(total)
+    for i in range(num_fluid):
+        rho[i] = rho0 * (1 + (rho0 * g * ((ht + 0*deltaf) - abs(Z_fluido[i])) / b ))**(1.0/gamma)
+        pressure[i] = rho0 * g * (ht - Z_fluido[i])#b * ((rho[i]/rho0)**gamma - 1)
+    
+    # Escribir archivo
+    with open(filename, 'w') as f:
+        f.write(f"0   0.0   {total}   {num_fluid}   {num_wall}\n")
+        
+        # Partículas de fluido
+        for i in range(num_fluid):
+            f.write(f"{i+1}   {X_fluido[i]:.6f}   {Z_fluido[i]:.6f}   "
+                    f"0.0   0.0   {mass[i]:.6f}   {rho[i]:.6f}   "
+                    f"{pressure[i]:.6f}   357.100000   1   {deltaf:.6f}   {viscFluid:.6f}   0.0   0.0 \n")
+        
+        # Partículas de pared
+        for i in range(num_wall):
+            idx = num_fluid + i + 1
+            f.write(f"{idx}   {X_topo[i]:.6f}   {Z_topo[i]:.6f}   "
+                    f"0.0    0.0   {mass[idx-1]:.6f}   {rho0/2:.6f}   "
+                    f"0.000000   357.100000   -1   {ddx:.6f}   {viscWall:.6f}   0.0   0.0\n")
+
+
+# ==================== ROTACION Y TRANSLACION DE PUNTOS ===========
+
+def transformar_puntos(puntos, theta, phi, traslacion):
+    """
+    Aplica rotaciones y traslación 3D a un conjunto de puntos
+    
+    Parámetros:
+    - puntos: array Nx3 con coordenadas (x, y, z)
+    - theta: ángulo de rotación zenital en grados
+    - phi: ángulo de rotación azimutal en grados
+    - traslacion: vector de traslación 3D (dx, dy, dz)
+    
+    Devuelve:
+    - Array Nx3 de puntos transformados
+    """
+    # Convertir ángulos a radianes
+    theta = np.radians(theta)
+    phi = np.radians(phi)
+    
+    # Matrices de rotación
+    Rz = np.array([[np.cos(phi), -np.sin(phi), 0],
+                   [np.sin(phi),  np.cos(phi), 0],
+                   [0,            0,           1]])  # Rotación azimutal (eje Z)
+    
+    Ry = np.array([[np.cos(theta),  0, np.sin(theta)],
+                   [0,             1,           0],
+                   [-np.sin(theta), 0, np.cos(theta)]])  # Rotación zenital (eje Y)
+    
+    # Rotación combinada
+    rotacion = Ry @ Rz
+    
+    # Aplicar transformación a cada punto
+    puntos_rotados = np.dot(puntos, rotacion.T)  # Rotación
+    puntos_transformados = puntos_rotados + traslacion  # Traslación
+    
+    return puntos_transformados
+
+
+
+            
+# ======================= VISUALIZACIÓN 2D =======================
+def graficar_configuracion(paredes=None, fluido=None, mostrar_paredes=True, mostrar_fluido=True, 
+                          titulo="Configuración 2D", tamano_puntos=10):
+    """
+    Visualiza la configuración del sistema con opciones de selección
+    
+    Parámetros:
+    - paredes: Array de puntos de las paredes (opcional)
+    - fluido: Array de puntos del fluido (opcional)
+    - mostrar_paredes: Bool para mostrar paredes
+    - mostrar_fluido: Bool para mostrar fluido
+    - titulo: Título del gráfico
+    - tamano_puntos: Tamaño de los puntos en el gráfico
+    """
+    
+    fig, ax = plt.subplots()
+    
+    if mostrar_paredes and paredes is not None:
+        ax.scatter(paredes[:,0], paredes[:,2], c='gray', s=tamano_puntos, label='Paredes')
+    
+    if mostrar_fluido and fluido is not None:
+        ax.scatter(fluido[:,0], fluido[:,2], c='blue', s=tamano_puntos, label='Fluido')
+    
+    ax.set_xlabel('X')
+    ax.set_ylabel('Z')
+    ax.set_title(titulo)
+    ax.grid(True)
+    ax.set_aspect('equal')
+    ax.legend()
+    plt.show()
+
+# ======================= GENERACIÓN DEL CANAL 2D =======================
+delta = 0.006  # Espacio entre partículas fluido
+
+# ================ Datos del canal ============
+pared_delta = delta/2
+pared_altura = 0.61
+largo = 1.61#0.6+delta*1.5#1.61#+delta
+
+# ================ Datos del rompimiento de presa ============
+fluid_alto = 0.0
+fluid_largo = 0.0
+
+
+# Generar paredes del canal
+pared_izq = generar_lamina_puntos_2D(
+    punto_inicial=np.array([0.0, 0.0, pared_delta]),
+    ancho=pared_delta/2,
+    altura=pared_altura-pared_delta,
+    espacio=pared_delta,
+    angulo=0
+)
+
+
+pared_der = generar_lamina_puntos_2D(
+    punto_inicial=np.array([largo, 0.0, pared_delta]),
+    ancho=pared_delta/2,
+    altura=pared_altura-pared_delta,
+    espacio=pared_delta,
+    angulo=0
+)
+
+base = generar_lamina_puntos_2D(
+    punto_inicial=np.array([0.0, 0.0, 0.0]),
+    ancho=largo,
+    altura=pared_delta/2,
+    espacio=pared_delta,
+    angulo=0
+)
+
+# Generar fluido
+
+fluido = generar_bloque_2D(
+    punto_inicial=np.array([delta*1.4, 0.0, delta*1.4]),    ancho=fluid_largo-delta,
+    altura=fluid_alto-delta,
+    espacio=delta
+)
+
+
+# Combinar los datos necesarios
+puntos_paredes = np.vstack([pared_izq, pared_der, base])
+puntos_fluido = np.vstack([fluido])
+
+theta = 0
+traslacion = np.array([0, 0, 0])
+
+puntos_paredes = transformar_puntos(puntos_paredes, theta, 0.0, traslacion)
+puntos_fluido = transformar_puntos(puntos_fluido, theta, 0.0, traslacion)
+
+print('num puntos paredes = ',len(puntos_paredes))
+print('num puntos fluido  = ',len(puntos_fluido))
+
+# Opción 1: Mostrar solo las paredes
+graficar_configuracion(paredes=puntos_paredes, fluido=None, mostrar_paredes=True, mostrar_fluido=False,
+                      titulo="Configuración de las paredes")
+
+# Opción 2: Mostrar solo el fluido
+#graficar_configuracion(paredes=None, fluido=puntos_fluido, mostrar_paredes=False, mostrar_fluido=True,
+#                      titulo="Bloque de fluido")
+
+# Opción 3: Mostrar todo junto
+graficar_configuracion(paredes=puntos_paredes, fluido=puntos_fluido, mostrar_paredes=True, mostrar_fluido=True,
+                      titulo="Configuración completa")
+
+# Generar archivo SPH
+# Unir todos los puntos
+X_topo = puntos_paredes[:,0]#np.concatenate([pared_izq[:,0], pared_der[:,0], base[:,0]])
+Z_topo = puntos_paredes[:,2]#np.concatenate([pared_izq[:,2], pared_der[:,2], base[:,2]])
+X_fluido = puntos_fluido[:,0]
+Z_fluido = puntos_fluido[:,2]
+
+generar_sph_snapshot_2D(
+    X_topo=X_topo,
+    Z_topo=Z_topo,
+    X_fluido=X_fluido,
+    Z_fluido=Z_fluido,
+    deltaf=delta,
+    ddx=delta,
+    ht=np.max(Z_fluido),
+    filename='snapshot_000'
+)
+
+print('ht = ', np.max(Z_fluido))

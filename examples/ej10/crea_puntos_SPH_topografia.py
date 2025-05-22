@@ -1,0 +1,586 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+import numpy as np
+from scipy.interpolate import griddata
+from scipy.optimize import leastsq
+
+
+def leer_datos(file_path, delimiter=" "):
+    """
+    Lee un archivo de texto y retorna las columnas 'ESTE', 'NORTE' y 'COTA'.
+    
+    Parámetros:
+    - file_path: Ruta del archivo a leer.
+    - delimiter: Delimitador usado en el archivo (por defecto es un espacio).
+
+    Retorna:
+    - x, y, z: Columnas como arrays de NumPy.
+    """
+    # Leer el archivo con pandas, ignorando las primeras líneas si son cabeceras
+    df = pd.read_csv(file_path, delimiter=delimiter, skiprows=1, header=None, 
+                     names=['PUNTO', 'ESTE', 'NORTE', 'COTA', 'CODIGO', 'DESCRIPCIÓN'])
+    
+    # Selección de columnas
+    x = df['ESTE'].values
+    y = df['NORTE'].values
+    z = df['COTA'].values
+
+    return x, y, z
+
+
+def leer_datos_gis(file_path, delimiter=";", decimal=",", encoding="utf-8"):
+    """
+    Lee un archivo de texto con columnas 'POINT_X', 'POINT_Y' y 'Z' y retorna estas columnas como arrays de NumPy.
+
+    Parámetros:
+    - file_path: Ruta del archivo a leer.
+    - delimiter: Delimitador usado en el archivo (por defecto es una coma).
+    - decimal: Carácter usado como punto decimal (por defecto es '.').
+    - encoding: Encoding del archivo (por defecto es 'utf-8').
+
+    Retorna:
+    - x, y, z: Columnas 'POINT_X', 'POINT_Y' y 'Z' como arrays de NumPy.
+    """
+    # Leer el archivo con pandas
+    datos = pd.read_csv(
+        file_path,
+        delimiter=delimiter,
+        decimal=decimal,
+        encoding=encoding
+    )
+
+    # Selección de columnas
+    x = datos["POINT_X"].values
+    y = datos["POINT_Y"].values
+    z = datos["Z"].values
+
+    return x, y, z
+
+
+
+def interpolar_puntos(X, Y, Z, delta=1.0, metodo='cubic'):
+    """
+    Interpola puntos dispersos en una cuadrícula uniforme basada en un tamaño de celda definido.
+
+    Parámetros:
+    - X, Y, Z: Coordenadas de puntos dispersos.
+    - delta: Tamaño de la celda cuadrada de la cuadrícula.
+    - metodo: Método de interpolación ('linear', 'nearest', 'cubic').
+
+    Retorna:
+    - X_interp, Y_interp, Z_interp: Coordenadas de la cuadrícula interpolada.
+    - ddx, ddy: Tamaños de celda en los ejes X e Y (deberían ser iguales a delta).
+    """
+    # Definir los límites de la cuadrícula
+    x_min, x_max = np.min(X), np.max(X)
+    y_min, y_max = np.min(Y), np.max(Y)
+
+    # Generar los puntos de la cuadrícula basados en delta
+    x_interp = np.arange(x_min, x_max + delta, delta)
+    y_interp = np.arange(y_min, y_max + delta, delta)
+    X_interp, Y_interp = np.meshgrid(x_interp, y_interp)
+
+    # Calcular tamaños de celda
+    ddx = delta
+    ddy = delta
+    print('Cell size boundary: dx =', ddx, ', dy =', ddy)
+
+    # Interpolar los datos Z en la cuadrícula
+    Z_interp = griddata((X, Y), Z, (X_interp, Y_interp), method=metodo)
+
+    # Manejar valores NaN reemplazándolos con 0 (o cualquier otro valor adecuado)
+    Z_interp = np.nan_to_num(Z_interp, nan=0.0)
+
+    return X_interp, Y_interp, Z_interp, ddx
+
+def graficar_3d_conjunto(X_orig, Y_orig, Z_orig, X_interp, Y_interp, Z_interp, title="Gráfico 3D"):
+    """
+    Grafica puntos originales e interpolados en 3D con diferentes colores.
+
+    Parámetros:
+    - X_orig, Y_orig, Z_orig: Coordenadas de los puntos originales.
+    - X_interp, Y_interp, Z_interp: Coordenadas de los puntos interpolados.
+    - title: Título del gráfico.
+    """
+    # Filtrar puntos donde Z no es igual a cero
+    mask_orig = Z_orig != 0
+    mask_interp = Z_interp != 0
+
+    X_orig, Y_orig, Z_orig = X_orig[mask_orig], Y_orig[mask_orig], Z_orig[mask_orig]
+    X_interp, Y_interp, Z_interp = X_interp[mask_interp], Y_interp[mask_interp], Z_interp[mask_interp]
+
+    # Crear la figura y el eje 3D
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Graficar los datos originales
+    ax.scatter(X_orig, Y_orig, Z_orig, c='green', marker='.', s=20, label='Originales')
+
+    # Graficar los datos interpolados
+    #ax.scatter(X_interp, Y_interp, Z_interp, c='gray', marker='.', s=10, label='Interpolados')
+
+    # Ajustar la escala de los ejes para que sean iguales
+    max_range = np.array([
+        max(X_orig.max(), X_interp.max()) - min(X_orig.min(), X_interp.min()),
+        max(Y_orig.max(), Y_interp.max()) - min(Y_orig.min(), Y_interp.min()),
+        max(Z_orig.max(), Z_interp.max()) - min(Z_orig.min(), Z_interp.min())
+    ]).max() / 2.0
+
+    mid_x = (max(X_orig.max(), X_interp.max()) + min(X_orig.min(), X_interp.min())) * 0.5
+    mid_y = (max(Y_orig.max(), Y_interp.max()) + min(Y_orig.min(), Y_interp.min())) * 0.5
+    mid_z = (max(Z_orig.max(), Z_interp.max()) + min(Z_orig.min(), Z_interp.min())) * 0.5
+
+    ax.set_xlim(mid_x - max_range, mid_x + max_range)
+    ax.set_ylim(mid_y - max_range, mid_y + max_range)
+    ax.set_zlim(mid_z - max_range, mid_z + max_range)
+
+    # Etiquetas de los ejes
+    ax.set_xlabel('Este')
+    ax.set_ylabel('Norte')
+    ax.set_zlabel('Cota')
+
+    # Añadir leyenda
+    ax.legend()
+
+    # Mostrar la gráfica
+    plt.title(title)
+    plt.show()
+    
+    return X_interp, Y_interp, Z_interp
+    
+    
+    
+
+
+def graficar_3d_conjunto_con_caja(X_orig, Y_orig, Z_orig, X_interp, Y_interp, Z_interp, title="Gráfico 3D", dispersion=0.1):
+    """
+    Grafica puntos originales e interpolados en 3D, añade una caja transparente basada en los puntos interpolados
+    y muestra los extremos (xmin, xmax, ymin, ymax, zmin, zmax).
+
+    Parámetros:
+    - X_orig, Y_orig, Z_orig: Coordenadas de los puntos originales.
+    - X_interp, Y_interp, Z_interp: Coordenadas de los puntos interpolados.
+    - title: Título del gráfico.
+    """
+    # Filtrar puntos donde Z no es igual a cero
+    mask_orig = Z_orig != 0
+    mask_interp = Z_interp != 0
+
+    X_orig, Y_orig, Z_orig = X_orig[mask_orig], Y_orig[mask_orig], Z_orig[mask_orig]
+    X_interp, Y_interp, Z_interp = X_interp[mask_interp], Y_interp[mask_interp], Z_interp[mask_interp]
+
+    # Calcular los extremos
+    xmin, xmax = X_interp.min(), X_interp.max()
+    ymin, ymax = Y_interp.min(), Y_interp.max()
+    zmin, zmax = Z_interp.min(), Z_interp.max()
+
+    # Agregar dispersión aleatoria dentro del intervalo [Z_interp - dispersion, Z_interp + dispersion]
+    # Z_interp += np.random.uniform(-dispersion, dispersion, Z_interp.shape)
+    Z_interp += (2 * np.random.rand(*Z_interp.shape) - 1) * dispersion
+
+    z_min, z_max = np.min(Z_interp), np.max(Z_interp)
+    print('222222222222222 z_min, z_max = ', z_min, z_max)
+
+    print(f"Extremos:")
+    print(f"x_min, x_max = {xmin}, {xmax}")
+    print(f"y_min, y_max = {ymin}, {ymax}")
+    print(f"z_min, z_max = {zmin}, {zmax}")
+
+    # Crear la figura y el eje 3D
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Graficar los datos originales
+    ax.scatter(X_orig, Y_orig, Z_orig, c='green', marker='.', s=20, label='Originales')
+
+    # Graficar los datos interpolados
+    interval = 10
+    ax.scatter(X_interp[::interval], Y_interp[::interval], Z_interp[::interval], c='gray', marker='.', s=10, label='Interpolados')
+
+    # Crear los vértices de la caja transparente
+    vertices = [
+        [xmin, ymin, zmin],
+        [xmin, ymin, zmax],
+        [xmin, ymax, zmin],
+        [xmin, ymax, zmax],
+        [xmax, ymin, zmin],
+        [xmax, ymin, zmax],
+        [xmax, ymax, zmin],
+        [xmax, ymax, zmax]
+    ]
+
+    # Definir las caras de la caja
+    faces = [
+        [vertices[0], vertices[1], vertices[5], vertices[4]],  # Cara frente
+        [vertices[2], vertices[3], vertices[7], vertices[6]],  # Cara trasera
+        [vertices[0], vertices[1], vertices[3], vertices[2]],  # Cara izquierda
+        [vertices[4], vertices[5], vertices[7], vertices[6]],  # Cara derecha
+        [vertices[0], vertices[2], vertices[6], vertices[4]],  # Cara inferior
+        [vertices[1], vertices[3], vertices[7], vertices[5]]   # Cara superior
+    ]
+
+    # Crear la colección de polígonos
+    box = Poly3DCollection(faces, alpha=0.2, linewidths=0.5, edgecolors='r')
+    ax.add_collection3d(box)
+
+    # Ajustar la escala de los ejes para que sean iguales
+    max_range = np.array([
+        xmax - xmin,
+        ymax - ymin,
+        zmax - zmin
+    ]).max() / 2.0
+
+    mid_x = (xmax + xmin) * 0.5
+    mid_y = (ymax + ymin) * 0.5
+    mid_z = (zmax + zmin) * 0.5
+
+    ax.set_xlim(mid_x - max_range, mid_x + max_range)
+    ax.set_ylim(mid_y - max_range, mid_y + max_range)
+    ax.set_zlim(mid_z - max_range, mid_z + max_range)
+
+    # Etiquetas de los ejes
+    ax.set_xlabel('Este')
+    ax.set_ylabel('Norte')
+    ax.set_zlabel('Cota')
+
+    # Añadir leyenda
+    ax.legend()
+
+    # Mostrar la gráfica
+    plt.title(title)
+    plt.show()
+
+    return X_interp, Y_interp, Z_interp, xmin, xmax, ymin, ymax, zmin, zmax
+    
+    
+    
+def generar_sph_snapshot(X_topo, Y_topo, Z_topo, X_fluido=[], Y_fluido=[], Z_fluido=[], viscFluid=0.001002, viscWall=0.001002, deltaf=1, ddx=1, ht=1, x0=0, y0=0, max_altitud_original=10, min_altitud_original=0, filename='snapshot_000'):
+    # Constantes físicas
+    g = 9.82
+    gamma = 7.0
+    beta0 = 1.0
+    beta = beta0 * 1.0
+    ht = max_altitud_original #- min_altitud_original
+    ht0 = max_altitud_original - min_altitud_original   
+    c = beta * np.sqrt(2. * g * ht)
+    rho0 = 1000.0
+    b = rho0 * c * c / gamma
+    
+    paso_tiempo_Courant = 0.1 * (deltaf * 2) / ( c + np.sqrt(2. * g * ht)  )  
+
+
+    # Imprimir las constantes físicas
+    print('Constantes Físicas')
+    print(f'g = {g}')
+    print(f'gamma = {gamma}')
+    print(f'beta = beta0 * 1.0 = {beta}')
+    print(f'ht0 = {ht0}')
+    print(f'c = beta * np.sqrt(2. * g * ht0) = {c}')
+    print(f'rho0 = {rho0}')
+    print(f'b = rho0 * c * c / gamma = {b}')
+    print('paso_tiempo_Courant = ',paso_tiempo_Courant)
+    
+    # IDs y tipos de partículas
+    num_wall_particles = len(X_topo)
+    num_fluid_particles = len(X_fluido)
+    num_particles = num_wall_particles + num_fluid_particles
+
+    ids_fluid = np.arange(1, num_fluid_particles + 1)
+    ids_wall = np.arange(num_fluid_particles + 1, num_particles + 1)
+
+    # Imprimir información del SPH
+    print('========================== Variables para el SPH ')
+    print(f'num_wall_particles = {num_wall_particles}, num_fluid_particles = {num_fluid_particles}, num_particles = {num_particles}')
+    print(f'delta wall = {ddx}, delta fluid = {deltaf}')
+    print('==========================')
+
+    # Masa para las partículas
+    mass_wall = rho0 * ddx**3
+    mass_fluid = rho0 * deltaf**3
+
+    print('mass wall =',mass_wall)
+
+    # Inicializar arrays para las propiedades de las partículas
+    velocities = np.zeros((num_particles, 3))
+    rho = np.zeros(num_particles)
+    pressure = np.zeros(num_particles)
+    mass = np.zeros(num_particles)
+    internal_energy = np.full(num_particles, 357.1)
+    itype = np.full(num_particles, -1)
+    hsml = np.full(num_particles, deltaf)
+    viscF = np.full(num_fluid_particles, viscFluid)
+    viscW = np.full(num_wall_particles, viscWall)
+
+    # Asignar tipos de partículas
+    itype[:num_fluid_particles] = 1  # Fluido
+
+    # Asignar propiedades a las partículas de fluido
+    for i in range(num_fluid_particles):
+        rho[i] = rho0 * (1 + (rho0 * g * (ht - abs(Z_fluido[i])) / b ))**(1.0 / gamma)
+        pressure[i] = b * ((rho[i] / rho0)**gamma - 1.0)
+        mass[i] = rho[i] * deltaf**3
+
+    # Asignar propiedades a las partículas de la topografía
+    rho[num_fluid_particles:] = rho0
+    pressure[num_fluid_particles:] = 0.0
+    mass[num_fluid_particles:] = mass_wall
+    itype[num_fluid_particles:] = -1  # Topografía
+
+    # Guardar los datos en un archivo
+    with open(filename, 'w') as f:
+        f.write(f"0   0.0   {num_particles}   {num_fluid_particles}   {num_wall_particles}\n")
+
+        # Escribir partículas de fluido
+        for i in range(num_fluid_particles):
+            f.write(f"{ids_fluid[i]}   {X_fluido[i]:.6f}   {Y_fluido[i]:.6f}   {Z_fluido[i]:.6f}   "
+                    f"{velocities[i, 0]:.6f}   {velocities[i, 1]:.6f}   {velocities[i, 2]:.6f}   {mass[i]:.6f}   {rho[i]:.6f}   "
+                    f"{pressure[i]:.6f}   {internal_energy[i]:.6f}   {itype[i]}   {hsml[i]:.6f}   {viscF[i]:.6f}   0.0   1.5 \n")
+        
+        # Escribir partículas de la topografía   
+        for i in range(num_wall_particles):
+            j = num_fluid_particles + i
+            f.write(f"{ids_wall[i]}   {X_topo[i]:.6f}   {Y_topo[i]:.6f}   {Z_topo[i]:.6f}   "
+                    f"{velocities[j, 0]:.6f}   {velocities[j, 1]:.6f}   {velocities[j, 2]:.6f}   {mass[j]:.6f}   {rho[j]:.6f}   "
+                    f"{pressure[j]:.6f}   {internal_energy[j]:.6f}   {itype[j]}   {hsml[j]:.6f}   {viscW[i]:.6f}   0.0   1.5\n")
+
+    print(f"Datos guardados en {filename}")
+
+
+# generar RELLENO
+
+def generar_relleno_topografico(x, y, z, puntos_region, delta):
+    """
+    Genera puntos de relleno en una región delimitada por 4 puntos, manteniendo la pendiente topográfica.
+
+    Parámetros:
+    - x, y, z: Arrays de NumPy con las coordenadas de la topografía original.
+    - puntos_region: Lista con los 4 puntos [(x1,y1), (x2,y2), (x3,y3), (x4,y4)].
+    - delta: Espaciado de la malla de relleno.
+
+    Retorna:
+    - xr, yr, zr: Arrays de coordenadas de los puntos generados.
+    """
+    # Extraer los puntos de la región
+    x1, y1 = puntos_region[0]
+    x2, y2 = puntos_region[1]
+    x3, y3 = puntos_region[2]
+    x4, y4 = puntos_region[3]
+    
+    # Determinar los límites de la región
+    xmin, xmax = min(x1, x2, x3, x4), max(x1, x2, x3, x4)
+    ymin, ymax = min(y1, y2, y3, y4), max(y1, y2, y3, y4)
+    
+    # Filtrar los puntos dentro de la región
+    mask = (x >= xmin) & (x <= xmax) & (y >= ymin) & (y <= ymax)
+    x_region, y_region, z_region = x[mask], y[mask], z[mask]
+    
+    # Ajustar un plano Z = ax + by + c usando mínimos cuadrados
+    def error_func(p, x, y, z):
+        a, b, c = p
+        return z - (a * x + b * y + c)
+    
+    p_inicial = [0, 0, np.mean(z_region)]
+    coef, _ = leastsq(error_func, p_inicial, args=(x_region, y_region, z_region))
+    a, b, c = coef
+    
+    # Crear una cuadrícula de puntos dentro de la región
+    xr, yr = np.meshgrid(np.arange(xmin, xmax, delta), np.arange(ymin, ymax, delta))
+    xr, yr = xr.flatten(), yr.flatten()
+    
+    # Calcular la altura en la malla usando el plano ajustado
+    zr = a * xr + b * yr + c
+    
+    return xr, yr, zr
+    
+def relleno_topografico(X_interp, Y_interp, Z_interp, ddx, xi, xf, yi, yf,n):
+    """
+    Genera puntos de relleno sobre una región específica de la topografía.
+
+    Parámetros:
+    - X_interp, Y_interp, Z_interp: Coordenadas interpoladas.
+    - ddx: Tamaño de celda interpolada.
+    - xi, xf, yi, yf: Límites de la región donde se realizará el relleno.
+
+    Retorna:
+    - xr, yr, zr: Coordenadas de los puntos de relleno.
+    """
+    # Filtrar los puntos dentro del área de interés
+    mask = (X_interp >= xi) & (X_interp <= xf) & (Y_interp >= yi) & (Y_interp <= yf)
+    X_region = X_interp[mask]
+    Y_region = Y_interp[mask]
+    Z_region = Z_interp[mask] 
+    
+    # Calcular valores máximo y mínimo de Z en la región
+    zmax = np.max(Z_region)
+    zmin = np.min(Z_region)
+    print('zmax, zmin =',zmax, zmin,'ht = ',zmax-zmin)
+    
+    # Crear el grid de relleno con un paso de 2*ddx
+    x_rango = np.arange(xi, xf + 2*ddx, 2*ddx)
+    y_rango = np.arange(yi, yf + 2*ddx, 2*ddx)
+    Xr, Yr = np.meshgrid(x_rango, y_rango)
+    
+    # Interpolar Z en los nuevos puntos de relleno
+    Zr = np.zeros_like(Xr)
+    for i in range(Xr.shape[0]):
+        for j in range(Xr.shape[1]):
+            x_val = Xr[i, j]
+            y_val = Yr[i, j]
+            
+            # Encontrar el punto más cercano en la topografía interpolada
+            idx = np.argmin((X_region - x_val)**2 + (Y_region - y_val)**2)
+            Zr[i, j] = Z_region[idx] + n*ddx
+          
+    # Aplanar los arrays
+    Xr, Yr, Zr = Xr.flatten(), Yr.flatten(), Zr.flatten()
+    
+    umbral = ddx * 2  # Umbral de distancia
+    mask_filtrado = []
+
+    for i in range(len(Xr)):  # Recorremos cada partícula
+        d_min = np.min(np.sqrt((Xr[i] - X_interp.flatten())**2 + 
+                            (Yr[i] - Y_interp.flatten())**2 + 
+                            (Zr[i] - Z_interp.flatten())**2))
+    
+        # Si la distancia mínima es mayor que el umbral, conservamos la partícula
+        mask_filtrado.append(d_min >= umbral)
+
+    mask_filtrado = np.array(mask_filtrado)  # Convertir lista a array booleano
+    
+    Xr, Yr, Zr = Xr[mask_filtrado], Yr[mask_filtrado], Zr[mask_filtrado]
+
+    
+    return Xr, Yr, Zr
+
+
+def generar_lamina_puntos(punto_inicial, lado1, lado2, angulo_azimutal, angulo_zenital, espacio_entre_puntos, plano="x-y"):
+    # Convertir ángulos de grados a radianes
+    angulo_azimutal = np.radians(angulo_azimutal)
+    angulo_zenital = np.radians(angulo_zenital)
+
+    # Crear vectores de los lados según el plano especificado
+    if plano == "x-y":
+        vector1 = np.array([1, 0, 0]) * lado1
+        vector2 = np.array([0, 1, 0]) * lado2
+    elif plano == "z-y":
+        vector1 = np.array([0, 0, 1]) * lado1
+        vector2 = np.array([0, 1, 0]) * lado2
+    elif plano == "z-x":
+        vector1 = np.array([0, 0, 1]) * lado1
+        vector2 = np.array([1, 0, 0]) * lado2
+    else:
+        raise ValueError("Plano no válido. Use 'x-y', 'z-y' o 'z-x'.")
+
+    # Matrices de rotación para los ángulos dados
+    Rz = np.array([
+        [np.cos(angulo_azimutal), -np.sin(angulo_azimutal), 0],
+        [np.sin(angulo_azimutal), np.cos(angulo_azimutal), 0],
+        [0, 0, 1]
+    ])
+
+    Ry = np.array([
+        [np.cos(angulo_zenital), 0, np.sin(angulo_zenital)],
+        [0, 1, 0],
+        [-np.sin(angulo_zenital), 0, np.cos(angulo_zenital)]
+    ])
+
+    # Aplicar la rotación de orientación
+    vector1 = Ry @ Rz @ vector1
+    vector2 = Ry @ Rz @ vector2
+
+    # Número de puntos en cada lado, incluyendo el extremo final
+    num_puntos_lado1 = int(np.floor(lado1 / espacio_entre_puntos)) + 1
+    num_puntos_lado2 = int(np.floor(lado2 / espacio_entre_puntos)) + 1
+
+    # Generar la malla de puntos en la lámina
+    puntos = []
+    for i in range(num_puntos_lado1):
+        for j in range(num_puntos_lado2):
+            punto = punto_inicial + i * espacio_entre_puntos * vector1 / lado1 + j * espacio_entre_puntos * vector2 / lado2
+            puntos.append(punto)
+
+    puntos = np.array(puntos)
+
+       # Extraer coordenadas x, y, z
+    x = puntos[:, 0]
+    y = puntos[:, 1]
+    z = puntos[:, 2]
+    
+    return x, y, z
+
+
+
+
+
+
+
+######################33
+
+
+
+# Ejemplo de uso
+if __name__ == "__main__":
+    file_path = "coordenadas.txt"  # Cambia a la ruta de tu archivo
+
+    delta = 1.0  # Tamaño de la celda
+    
+    # Leer los datos
+    #x, y, z = leer_datos(file_path)
+    x, y, z = leer_datos_gis(file_path)
+    cx = 4520000
+    cy = 1646000
+    x = x - cx
+    y = y - cy    
+    # Definir los cuatro puntos que delimitan la hendidura
+    # 2. Definir los cuatro puntos que delimitan la región de relleno
+
+#    puntos_region = np.array([
+#    [500, 2100],  # (x1, y1)
+#    [600, 2100],  # (x2, y2)
+#    [600, 2150],  # (x3, y3)
+#    [500, 2150]   # (x4, y4)
+#    ])
+
+#    xr, yr, zr = generar_relleno_topografico(x, y, z, puntos_region, delta*2)
+#    xr0, yr0, zr0 = generar_relleno_topografico(x, y, z, puntos_region, delta*2)
+#    print('Numero de partículas generadas capa 1',len(xr),len(yr),len(zr))
+    
+#    zr = zr + delta*5
+#    zr0 = zr0 + delta*5 + delta*2
+
+   
+    # Interpolar los datos
+   
+    x_interp, y_interp, z_interp, ddx = interpolar_puntos(x, y, z, delta=delta)
+    
+    xi = 700
+    xf = 900
+    yi = 1950
+    yf = 1990
+#    xr, yr, zr= relleno_topografico(x_interp, y_interp, z_interp, ddx, xi, xf, yi, yf,3)
+#    xr0, yr0, zr0 = relleno_topografico(x_interp, y_interp, z_interp, ddx, xi, xf, yi, yf,5)
+#    xrt = np.hstack((xr,xr0))
+#    yrt = np.hstack((yr,yr0))
+#    zrt = np.hstack((zr,zr0))
+#    print('Numero de partículas generadas capa 2',len(xr),len(xr0),len(xrt))
+    xrt, yrt, zrt= relleno_topografico(x_interp, y_interp, z_interp, ddx, xi, xf, yi, yf,3)
+
+
+    
+    
+    # Graficar los datos originales e interpolados
+
+    X_topo, Y_topo, Z_topo, xmin, xmax, ymin, ymax, zmin, zmax = graficar_3d_conjunto_con_caja(xrt, yrt, zrt, x_interp.flatten(), y_interp.flatten(), z_interp.flatten(), title="Gráfico 3D con Caja", dispersion=0.5)
+#    X_topo, Y_topo, Z_topo = graficar_3d_conjunto(x, y, z, x_interp.flatten(), y_interp.flatten(), z_interp.flatten(), title="Datos originales e interpolados en 3D")
+
+                         
+    # Escribir snapshot
+    
+#    generar_sph_snapshot(X_topo, Y_topo, Z_topo, xrt, yrt, zrt, viscFluid=8.41, viscWall=8.41, deltaf=2*delta, ddx=2*delta, max_altitud_original=zmax, min_altitud_original=zmin,filename='snapshot_000')
+
+
+    generar_sph_snapshot(X_topo, Y_topo, Z_topo, xrt, yrt, zrt, viscFluid=800.41, viscWall=800.41, deltaf=2*delta, ddx=2*delta, max_altitud_original=zmax, min_altitud_original=zmin,filename='snapshot_000')
+    
+                        

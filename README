@@ -1,0 +1,209 @@
+FlowMove
+===============
+
+Autores
+-------
+- Diego Valencia-Enríquez  
+  Centro de Investigación y Desarrollo Tecnológico en Ciencias Aplicadas, Pasto, Colombia  
+- Javier Revelo-Fuelagán  
+  Departamento de Electrónica, Facultad de Ingeniería, Universidad de Nariño, Pasto, Colombia  
+
+Descripción general
+
+El código puede funcionar en los sitemar operativos Linux y Windows.
+
+# LINUX
+  _      _                       
+ | |    (_)                      
+ | |     _  _ __   _   _      
+ | |    | || '_ \ | | | | \/ / 
+ | |____| || | | || |_| | /\ \
+ |______|_||_| |_||_____|/ /\ \
+
+================================================================
+Descripción para el sistema operativo Linux
+================================================================
+
+-----------
+Flow SPH-HB-Kv es un paquete de simulación que implementa:
+  1. El método Smoothed Particle Hydrodynamics (SPH) para modelar flujos de lodos.  
+  2. El modelo reológico de Herschel–Bulkley (HB).  
+  3. Una consistencia variable K(z) basada en el perfil de Krieger–Dougherty, que ajusta la viscosidad en función de la altura de cada partícula.
+
+Requisitos
+----------
+  • **Sistema operativo**: Linux (Ubuntu 20.04+) o Windows  
+  • **Lenguajes**:  
+    - Fortran 90 (gfortran recomendado)  
+    - Python 3.6+  
+  • **Bibliotecas Python**: NumPy, Matplotlib  
+  • **Hardware mínimo recomendado**: 8 GB RAM, procesador multinúcleo
+
+Estructura del proyecto
+-----------------------
+  ├─ doc/  
+  │   └─ Documentación técnica y manuales (.tex, .pdf)  
+  │  
+  ├─ include/  
+  │   └─ params.inc  ← Archivo de parámetros y constantes  
+  │  
+  ├─ src/  
+  │   └─ *.f90       ← Código Fortran SPH-HB-Kv  
+  │  
+  ├─ obj/  
+  │   └─ *.o         ← Objetos compilados  
+  │  
+  ├─ examples/  
+  │   └─ ej*/        ← Casos de prueba con snapshots y scripts de ejemplo  
+  │  
+  ├─ scripts/  
+  │   └─ *.py        ← Generación de condiciones iniciales y post-procesamiento  
+  │  
+  ├─ makefile        ← Reglas para compilar el núcleo Fortran  
+  └─ crear_ejecutable.sh  
+      ← Script que:  
+         • Invoca `make` para compilar  
+         • Copia el ejecutable `sph` dentro de `examples/<caso>/`  
+
+Instalación y uso
+-----------------
+1. Clonar el repositorio:  
+
+git clone https://github.com/usuario/Flow-SPH-HB-Kv.git cd Flow-SPH-HB-Kv
+
+
+
+2. (Opcional) Configurar variables de entorno Fortran:  
+```bash
+export FC=gfortran
+export FFLAGS="-O3 -fdefault-real-8"
+
+
+3. Crear ejecutable
+En la carpeta principal se tiene el archivo crear_ejecutable.sh. Hay vario ejemplos que
+se pueden ejecutar y están listos para compilar. Por cada proyecto o ejemplo se debe realizar
+una compilación. El archivo "crear_ejecutable.sh" crea el ejecutable el cual lee
+el archivo de parametros y lo lleva a la carpeta include y compila, luego el ejecutable es llevado
+a la carpeta proyecto. Par esto en la carpeta principal se da de ejemplo el siguiete comando
+
+./crear_ejecutable.sh examples/ej1
+
+4. Crear condiciones iniciales.
+
+cd examples/ej1
+
+Crear condiciones iniciales → scripts/ej1/condiciones_iniciales.py
+
+Genera archivo snapshot_000 (Contiene todas las partículas)
+Este archivo debe ser colocado en la carpeta del proyecto, por ejemplo "examples/ej1"
+
+cp ../scripts/ej1/snaptshot_000 .
+
+5. Ejecutar código
+En la carpeta del proyecto "ej1", se debe tener los archivos de condiciones iniciales "snapshot_000" y "run_1p_sh".
+Para ejecutar el proyecto, se ejecuta en terminal.
+
+./run_1p_sh
+
+
+6. Analizar datos.
+Se usa los scripts para realizar plots del desarrollo de los proyectos.
+Tener en cuenta que se debe tener intaladas las librerias de numpy y matplotlib.
+
+Ejemplo:
+python3 scripts/plot_snaps.py --folder ./examples/ej1
+o copia el script directamente en el proyecto y ejecuta.
+
+Licencia
+Este software se distribuye bajo la Licencia MIT. Consulte el archivo LICENSE para más detalles.
+
+Contacto
+Diego Valencia-Enríquez: diego.valencia@cidtca.edu.co
+
+Javier Revelo-Fuelagán: javier.revelo@uniandes.edu.co
+
+
+
+# WINDOWS
+__        ___           _                 
+\ \      / (_)         | |                
+ \ \ /\ / / _  __ _  __| | ___  _ __  ___ 
+  \ V  V / | |/ _` |/ _` |/ _ \| '_ \/ __|
+   \_/\_/  | | (_| | (_| | (_) | | | \__ \
+           |_| \__,_|\__,_|\___/|_| |_|___/
+================================================================
+Descripción para el sistema operativo WINDOWS
+================================================================
+================================================================
+Para usar el software en Windows primero debe instalar los siguietes páquetes. 
+Este trabajara en la terminal MSYS2 MINGW64
+===========================================
+INSTALACIÓN DE MSYS2, gfortran, PYTHON Y PAQUETES
+===========================================
+
+Paso 1: Instalar MSYS2 MINGW64
+-------------------------------------------
+1. Descarga MSYS2 desde:
+   https://www.msys2.org/
+2. Ejecuta el instalador y sigue las instrucciones.
+3. Una vez instalado, abre la terminal "MSYS2 MinGW 64-bit".
+
+Actualiza el sistema de paquetes de MSYS2:
+   pacman -Syu
+   (Si se te indica reiniciar la terminal, ciérrala y vuelve a abrirla)
+
+Paso 2: Instalar GNU Fortran (gfortran)
+-------------------------------------------
+Para instalar el compilador GNU Fortran para MinGW64, ejecuta:
+   pacman -S mingw-w64-x86_64-gcc-fortran
+
+Paso 3: Instalar Python y pip
+-------------------------------------------
+Instalar Python:
+   pacman -S mingw-w64-x86_64-python
+
+Instalar pip (si no se ha incluido):
+   pacman -S mingw-w64-x86_64-python-pip
+
+Paso 4: Instalar las librerías de Python (numpy y matplotlib)
+-------------------------------------------
+Instala las librerías precompiladas con pacman:
+   pacman -S mingw-w64-x86_64-python-numpy mingw-w64-x86_64-python-matplotlib
+
+Paso 5: Instalar ffmpeg (opcional, para soporte en matplotlib)
+-------------------------------------------
+Para evitar el mensaje "MovieWriter ffmpeg unavailable; using Pillow instead." y tener soporte completo para animaciones en matplotlib:
+   pacman -S mingw-w64-x86_64-ffmpeg
+
+Paso 6: Verificar las instalaciones
+-------------------------------------------
+Verifica que Python esté correctamente instalado:
+   python --version
+
+Verifica que pip esté instalado:
+   python -m pip --version
+
+Verifica que gfortran esté disponible:
+   gfortran --version
+
+-------------------------------------------
+Nota adicional:
+Si en algún momento necesitas instalar paquetes adicionales de Python sin interferir con el entorno global (debido a que MSYS2 gestiona los paquetes externamente), es recomendable usar un entorno virtual. Crea y activa un entorno virtual con:
+   python -m venv myenv
+   source myenv/bin/activate
+Y allí podrás instalar paquetes usando pip sin conflictos.
+
+6. Para ejecutar los proyectos se debe usar las mimas líneas de comandos que se usa en Linux.}
+Pero antes de ejecutar se debe editar las siguientes lineas en el makefile.
+
+#GFORTFLAGS = -fno-second-underscore -fopenmp -frecursive -fstack-arrays -ffree-line-length-none -Iinclude 
+GFORTFLAGS = -fno-second-underscore -Wl,--stack,8000000000 -ffree-line-length-none -Iinclude 
+
+
+===========================================
+FIN DE LAS INSTRUCCIONES
+===========================================
+
+
+
+

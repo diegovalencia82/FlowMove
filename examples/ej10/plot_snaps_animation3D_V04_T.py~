@@ -1,0 +1,230 @@
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from matplotlib.colors import Normalize
+from matplotlib.cm import ScalarMappable
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib.gridspec import GridSpec
+from scipy.interpolate import griddata
+from scipy.interpolate import RBFInterpolator
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+##### =================== FUNCIONES=======================
+
+def interpolar_puntos(puntos, num_puntos=100, metodo='cubic'):
+    """
+    Interpola los puntos de la matriz en una cuadrícula regular.
+
+    Parámetros:
+    - puntos: numpy array con las coordenadas (X, Y, Z).
+    - num_puntos: número de puntos en cada eje de la cuadrícula (por defecto 100).
+    - metodo: método de interpolación (por defecto 'cubic').
+
+    Retorna:
+    - Xh_grid: cuadrícula de coordenadas X.
+    - Yh_grid: cuadrícula de coordenadas Y.
+    - Zh_grid: valores interpolados de Z en la cuadrícula.
+    """
+    # Crear una cuadrícula para interpolar los puntos
+    xh_grid = np.linspace(np.min(puntos[:, 0]), np.max(puntos[:, 0]), num_puntos)
+    yh_grid = np.linspace(np.min(puntos[:, 1]), np.max(puntos[:, 1]), num_puntos)
+    Xh_grid, Yh_grid = np.meshgrid(xh_grid, yh_grid)
+
+    # Interpolar los valores Z sobre la cuadrícula
+    Zh_grid = griddata((puntos[:, 0], puntos[:, 1]), puntos[:, 2], (Xh_grid, Yh_grid), method=metodo)
+    print(Zh_grid)
+    
+    if np.isnan(Zh_grid).any():
+        print("La interpolación contiene valores NaN.")
+    
+    return Xh_grid, Yh_grid, Zh_grid
+
+def interpolar_puntos_3d(puntos, num_puntos=100, kernel='thin_plate_spline'):
+    """
+    Interpola puntos tridimensionales en una cuadrícula 3D utilizando RBFInterpolator.
+
+    Parámetros:
+    - puntos: numpy array con las coordenadas (X, Y, Z).
+    - num_puntos: número de puntos en cada eje de la cuadrícula (por defecto 100).
+    - kernel: tipo de kernel para la interpolación radial (por defecto 'thin_plate_spline').
+
+    Retorna:
+    - Xh_grid: cuadrícula de coordenadas X.
+    - Yh_grid: cuadrícula de coordenadas Y.
+    - Zh_grid: cuadrícula de coordenadas Z.
+    - Zh_interpolados: valores interpolados de Z en la cuadrícula tridimensional.
+    """
+    # Crear una cuadrícula 3D
+    xh_grid = np.linspace(np.min(puntos[:, 0]), np.max(puntos[:, 0]), num_puntos)
+    yh_grid = np.linspace(np.min(puntos[:, 1]), np.max(puntos[:, 1]), num_puntos)
+    zh_grid = np.linspace(np.min(puntos[:, 2]), np.max(puntos[:, 2]), num_puntos)
+
+    Xh_grid, Yh_grid, Zh_grid = np.meshgrid(xh_grid, yh_grid, zh_grid)
+    
+    # Crear el interpolador RBF
+    rbf_interpolator = RBFInterpolator(puntos[:, :3], puntos[:, 2], kernel=kernel)
+    
+    puntos_grid = np.vstack([Xh_grid.ravel(), Yh_grid.ravel(), Zh_grid.ravel()]).T
+    Zh_interpolados = rbf_interpolator(puntos_grid).reshape(Xh_grid.shape)
+    
+    return Xh_grid, Yh_grid, Zh_grid, Zh_interpolados
+
+def crear_caja():
+    x_min, x_max = 167.90431999973953, 1151.9043199997395
+    y_min, y_max = 914.6646900000051, 2338.664690000005
+    z_min, z_max = 1577.255697665108, 2121.6864700030483
+
+    vertices = [
+        # Cara inferior
+        [(x_min, y_min, z_min), (x_max, y_min, z_min), (x_max, y_max, z_min), (x_min, y_max, z_min)],
+        # Cara superior
+        [(x_min, y_min, z_max), (x_max, y_min, z_max), (x_max, y_max, z_max), (x_min, y_max, z_max)],
+        # Cara frontal
+        [(x_min, y_min, z_min), (x_max, y_min, z_min), (x_max, y_min, z_max), (x_min, y_min, z_max)],
+        # Cara trasera
+        [(x_min, y_max, z_min), (x_max, y_max, z_min), (x_max, y_max, z_max), (x_min, y_max, z_max)],
+        # Cara izquierda
+        [(x_min, y_min, z_min), (x_min, y_max, z_min), (x_min, y_max, z_max), (x_min, y_min, z_max)],
+        # Cara derecha
+        [(x_max, y_min, z_min), (x_max, y_max, z_min), (x_max, y_max, z_max), (x_max, y_min, z_max)],
+    ]
+    return vertices
+
+def dibujar_caja(ax, vertices):
+    for cara in vertices:
+        ax.add_collection3d(Poly3DCollection([cara], facecolors='cyan', edgecolors='black', alpha=0.2))
+
+### =================== FIN DE FUNCIONES
+
+# Variable de selección para mostrar o no las partículas con itype = -1
+sel = 1  # 1 para mostrar las partículas topográficas, 0 para no mostrarlas
+tamanop = 1
+
+# Variable global para almacenar los datos topográficos (tipo -1) del primer snapshot
+datos_topografia = None
+
+def read_snapshot(filepath):
+    # Leer datos del archivo snapshot
+    with open(filepath, 'r') as file:
+        lines = file.readlines()
+        # Extraer el tiempo (segundo dato de la primera línea)
+        time = float(lines[0].split()[1])
+        # Omitir la primera línea de metadatos
+        lines = lines[1:]
+        data = np.array([[float(val) for val in line.split()] for line in lines])
+    return time, data
+
+def calculate_velocity(data):
+    # Calcular la magnitud de la velocidad (columnas 4,5,6)
+    velocity = np.sqrt(data[:, 4]**2 + data[:, 5]**2 + data[:, 6]**2)
+    return velocity
+
+def update(frame):
+    global datos_topografia
+    ax_3d.clear()
+    ax_xz.clear()
+
+    x_min, x_max = 167.90431999973953, 1151.9043199997395
+    y_min, y_max = 914.6646900000051, 2338.664690000005
+    z_min, z_max = 1577.255697665108, 2121.6864700030483
+
+    # Configurar límites y etiquetas de la gráfica 3D
+    ax_3d.set_xlim(x_min, x_max)
+    ax_3d.set_ylim(y_min, y_max)
+    ax_3d.set_zlim(z_min, z_max)
+    ax_3d.set_xlabel('X')
+    ax_3d.set_ylabel('Y')
+    ax_3d.set_zlabel('Z')
+    ax_3d.set_box_aspect([0.5, 0.5, 0.2])  # Ajustar la relación de aspecto
+
+    # Configurar la gráfica 2D (x-z)
+    ax_xz.set_xlim(x_min, x_max)
+    ax_xz.set_ylim(z_min, z_max)
+    ax_xz.set_xlabel('X')
+    ax_xz.set_ylabel('Z')
+    ax_xz.set_aspect('equal', 'box')
+    
+    # En los snapshots posteriores solo existen partículas fluidas (tipo 1)
+    # En el primer snapshot (snapshot_0000) existen ambas
+    if sel == 0:
+        data = frame[1][frame[1][:, 11] != -1]
+    else:
+        data = frame[1]
+        
+    # Extraer partículas de fluido (itype = 1)
+    fluid_particles = data[data[:, 11] == 1]
+    
+    # Usar los datos topográficos almacenados desde el primer snapshot
+    if datos_topografia is not None:
+        mountain_particles = datos_topografia[::20]  # Tomar cada n puntos
+    else:
+        mountain_particles1 = data[data[:, 11] == -1]
+        mountain_particles = mountain_particles1[::2]
+    
+    velocity = calculate_velocity(fluid_particles)
+    
+    norm = Normalize(vmin=0, vmax=2*np.sqrt(2*9.8*10))
+    cmap = plt.get_cmap('copper')  # Mapa de colores: Café oscuro a naranja claro
+    sm = ScalarMappable(norm=norm, cmap=cmap)
+    colors = sm.to_rgba(velocity)
+    
+    # Graficar partículas fluidas en 3D
+    ax_3d.scatter(fluid_particles[:, 1], fluid_particles[:, 2], fluid_particles[:, 3],color=colors, s=tamanop, alpha=1.)
+    # Graficar la proyección en 2D (x-z)
+    if sel == 1:
+        ax_xz.scatter(mountain_particles[:, 1], mountain_particles[:, 3],color='green', s=0.1, alpha=0.1)
+    ax_xz.scatter(fluid_particles[:, 1], fluid_particles[:, 3],color=colors, s=tamanop, alpha=0.8)
+    if sel == 1:
+        ax_3d.scatter(mountain_particles[:, 1], mountain_particles[:, 2], mountain_particles[:, 3],color='green', s=0.5, alpha=0.1)
+
+    
+    # Mostrar el tiempo en la gráfica 3D
+    ax_3d.text2D(0.05, 0.95, f't = {frame[0]:.2f}', transform=ax_3d.transAxes,
+                 ha='left', va='top', fontsize=12)
+
+# Definir la carpeta donde se encuentran los archivos
+folder = './'
+
+# Crear la figura y subtramas con GridSpec
+fig = plt.figure(figsize=(12, 6))
+gs = GridSpec(1, 2, width_ratios=[2, 1])
+ax_3d = fig.add_subplot(gs[0], projection='3d')
+ax_xz = fig.add_subplot(gs[1])
+
+# Lista para almacenar los datos de las instantáneas
+data_frames = []
+
+# Leer cada 10 snapshots (de snapshot_0000 a snapshot_0861)
+for i in range(0,30):
+    # Formatear el nombre del archivo
+    filename = f'snapshot_{i:04d}'
+    filepath = os.path.join(folder, filename)
+    if os.path.exists(filepath):
+        print('Loading = ', filename)
+        time, data = read_snapshot(filepath)
+        # En el primer snapshot, guardar los datos topográficos (tipo -1)
+        if i == 0:
+            datos_topografia = data[data[:, 11] == -1]
+        data_frames.append((time, data))
+    else:
+        print(f'El archivo {filename} no existe en la carpeta especificada.')
+
+# Crear la animación
+anim = FuncAnimation(fig, update, frames=data_frames, interval=25)
+
+# Añadir la barra de colores en la parte superior izquierda
+cbar_ax = fig.add_axes([0.15, 0.92, 0.7, 0.02])  # [left, bottom, width, height]
+norm = Normalize(vmin=0, vmax=np.sqrt(2*9.8*10))
+cmap = plt.get_cmap('copper')
+sm = ScalarMappable(norm=norm, cmap=cmap)
+cbar = plt.colorbar(sm, cax=cbar_ax, orientation='horizontal')
+cbar_ax.text(1.0, 1.3, 'Velocity magnitude', transform=cbar_ax.transAxes,
+             ha='right', va='bottom', fontsize=12)
+
+# Guardar la animación como un archivo .mp4
+anim.save('animacion_3D.mp4', writer='ffmpeg')
+
+plt.tight_layout(rect=[0, 0, 1, 0.9])
+plt.show()
+

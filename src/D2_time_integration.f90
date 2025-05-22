@@ -1,0 +1,352 @@
+
+      subroutine D2_time_integration(mspace,ntotal,ntype,dt)
+!c----------------------------------------------------------------------
+
+
+!c     ntype-- total particle number for components                   [in]
+      
+!c     dt--- Time step used in the time integration                   [in]
+!c     time -- time of the snapshot
+!c     itimestep -- number of the time step.
+!c     mspace(1,i) = id -- label of each particle                   [out]      
+!c     mspace(2 to 4,i) = x-- coordinates of particles              [in/out]
+!c     mspace(5 to 7,i) = vx-- velocities of particles              [in/out]
+!c     mspace(8,i) = mass-- mass of particles                       [in]
+!c     mspace(9,i) = rho-- dnesities of particles                   [in/out]
+!c     mspace(10,i) = p-- pressure of particles                     [in/out]
+!c     mspace(11,i) = u-- internal energy of particles              [in/out]
+!c     mspace(12,i) = itype-- types of particles                    [in]
+!c     mspace(13,i) = hsml-- smoothing lengths of particles         [in/out]
+!c     mspace(14,i) = c-- sound velocity of particle                [out]
+!c     mspace(15,i) = s-- entropy of particles                      [out]
+!c     mspace(16,i) = e-- total energy of particles                 [out]
+!c     mspace(17) = Distancias menores entre particula fluido y particula frontera     [out]
+!c     mspace(18 to 19,i) = deshabilitadp
+!c     mspace(20 to 22,i) = dvx = dvx/dt, force per unit mass       [out]
+!c     mspace(23,i) = du        : du = du/dt                        [out]
+!c     mspace(24,i) = ds        : ds = ds/dt                        [out]
+!c     mspace(25,i) = drho      : drho = drh,o/dt                   [out]
+!c     mspace(26,i) = eta_c     : Coeficiente de Viscosidad No Lineal [in]      
+      
+      
+!c     fintime+1-- maximum timesteps                           [input]
+!c     dt-- timestep                                             [input]
+
+      
+      implicit none 
+      include 'param.inc'
+
+      integer i,j,l,k,ntype(2),ntotal,itimestep,nf,rangg(2),itoutfile, &
+           nfluid
+      double precision t(fintime+1),dt,av,v_m(3,nmax)
+      double precision, dimension(26, nmax) :: mspace
+      double precision xy(4),dxydt(4)
+      character(len=80) :: infilebas
+      character(len=80) :: outfile(20000)
+
+      double precision posy, AA, area_emitido, Volumen_particula, T_emision, d_vertical
+      double precision v_fuente, masa_total, masa_particula, paso_tiempo_Courant, QQ_particula, densidad_particula
+      logical :: has_solution
+      integer N_particulas, N_vertical, N_horizontal ,nstepsf
+
+      write(*,*)'ntype inicial',ntype
+      
+!c     --  Make an array of outfiles using a base outfile
+      do i = 1, 20000
+         outfile(i) = ' '
+      enddo
+      itoutfile = 0
+      infilebas = 'snapshot'
+      rangg(1)=1
+      rangg(2)=20000
+      call array_infilebase(infilebas,rangg,outfile,1,nf)  
+      
+!c---  Definition of variables derivates
+
+      itimestep = initime
+      itoutfile = inioutfile 
+!c      t = 0.0
+
+!      QQ = 0.06d0 !m^2/s
+!      length = 0.1d0
+!      start_x = h0*3
+!      start_z = h0*3
+!      angle = 90.
+
+      if(source_mode == 'y')then
+         v_fuente = 1. * v_fuente0
+         d_vertical = QQ / (abs(v_fuente) )
+         T_emision = 2*h0 /abs(v_fuente) !h0 * d_vertical / QQ!
+         area_emitido = QQ * T_emision ! Total emitted area
+         masa_total = rho0 * area_emitido ! Total mass per area
+         N_horizontal = 1!int(longitud_fuente / h0) + 1 ! dirección x
+
+         N_vertical =  int(d_vertical / h0) + 1
+         !if(N_vertical.l t.1)N_vertical = 1      
+         N_particulas = N_horizontal * N_vertical!int(QQ / QQ_particula)
+         masa_particula = rho0 * h0**2!masa_total / ( N_particulas + 0.0  )!rho0 * Volumen_particula!densidad_particula * Volumen_particula !masa_total / N_particulas
+         densidad_particula = rho0
+      endif
+      
+      !AA = QQ / abs(v_fuente) !Sección transversal
+      !QQ_particula = h0**2 * abs(v_fuente)
+
+      !if(N_horizontal.gt.N_particulas)then
+      !   N_horizontal = N_particulas
+      !   N_vertical = 1
+      !endif
+      
+      nstepsf = int(T_emision / dt0)
+
+      !Volumen_particula = masa_particula / rho0
+      if(source_mode == 'y')then
+         paso_tiempo_Courant = 0.1 * (h0 * 2) / ( beta*sqrt(2*g*ht) + v_fuente  )
+         write(*,*) 'Insert new particles: nstepsf = ',nstepsf,'v_fuente = ',v_fuente0
+         write(*,*) 'Insert new particles: number = ',N_vertical,N_horizontal,N_particulas
+         write(*,*) 'Lados horizontal =',d_horizontal,' vertical = ',d_vertical,'h0 = ',h0
+         write(*,*) 'Masa emitida por area = ', masa_total, rho0 * QQ
+         write(*,*) 'area emitido por linea = ', area_emitido
+         write(*,*) 'Volumen particula por area= ',Volumen_particula
+         write(*,*) 'Masa particula por area= ',masa_particula,'Densidad Particul =',densidad_particula
+         write(*,*) 'Con v_fuente, paso_tiempo_Courant = ',paso_tiempo_Courant
+      endif
+      
+!      call max_quadratic_solution(-g*0.5, vel, -h0, max_root, has_solution)
+!      nstepsf = int(abs(max_root/dt0)) * 1.2
+!      write(*,*)'has_solution = ',has_solution,'nstepsf = ',nstepsf,'Vel = ',vel
+      
+10    if (mod(itimestep, nstepsf) == 0.and.source_mode == 'y') then
+         if(ntype(1)+N_particulas.gt.nmax)then
+            write(*,*)'ntype(1)+N_particulas.gt.nmax)',ntype(1)+N_particulas,'.gt.',nmax
+         endif
+         posy = start_y
+         do k = 1,N_horizontal
+            write(*,*)'Fuente: Number of new particles = ',N_vertical
+            posy = start_y + (k-1)*h0*1.0
+            call D2_fuente(v_fuente, masa_particula, N_vertical, ntype, mspace, posy)
+            write(*,*)'Fuente modifique ntype  ',ntype,posy
+         enddo
+      endif
+
+     ! 10   if(itimestep.ne.1)then
+      if(itimestep.ne.1)then
+         do i=1,ntype(1)-ntype(2)
+            v_m(1,i) = mspace(5,i)
+            !v_m(2,i) = mspace(6,i)
+            v_m(3,i) = mspace(7,i)
+            mspace(5,i) = mspace(5,i) + (dt0/2.)*mspace(20,i)
+            !mspace(6,i) = mspace(6,i) + (dt0/2.)*mspace(21,i)
+            mspace(7,i) = mspace(7,i) + (dt0/2.)*mspace(22,i)
+!            mspace(2,i) = mspace(2,i) + dt0 * mspace(5,i)
+!            mspace(4,i) = mspace(4,i) + dt0 * mspace(7,i)
+         enddo
+      endif
+
+!      write(*,*)'------------------------'
+!      write(*,*)'ntype antes de single',ntype
+      
+      call D2_single_step(mspace,ntype,itimestep,dt,av)
+
+!      write(*,*)'ntype despues de single',ntype
+
+!      Método de Euler ----------10      
+!      do i=1,ntype(1)-ntype(2)
+!         xy(1) = mspace(2,i)
+!         xy(2) = mspace(4,i)
+!         xy(3) = mspace(5,i)
+!         xy(4) = mspace(7,i)
+
+!c     call derivadas(i,t(i),xy,dxydt,mspace)
+
+!         xy(3) = xy(3) + dt0*mspace(20,i)
+!         xy(1) = xy(1) + dt0*xy(3)
+!         xy(4) = xy(4) + dt0*mspace(22,i)
+!         xy(2) = xy(2) + dt0*xy(4)
+         
+!c         call rk4_dd(xy,dxydt,4,t(i),dt0,xy,derivadas,mspace,i)
+
+!         mspace(2,i) = xy(1)
+!         mspace(4,i) = xy(2)
+!         mspace(5,i) = xy(3)
+!         mspace(7,i) = xy(4)
+!c         write(*,*)i,xy,mspace(20,i),mspace(22,i)
+!      enddo
+!      fin método de Euler
+      
+      if(itimestep.eq.1)then
+         do i=1,ntype(1)-ntype(2)
+            mspace(5,i) = mspace(5,i) + (dt0/2.)*mspace(20,i)
+            !mspace(6,i) = mspace(6,i) + (dt0/2.)*mspace(21,i)
+            mspace(7,i) = mspace(7,i) + (dt0/2.)*mspace(22,i)
+            mspace(2,i) = mspace(2,i) + dt0 * mspace(5,i)
+            !mspace(3,i) = mspace(3,i) + dt0 * mspace(6,i)
+            mspace(4,i) = mspace(4,i) + dt0 * mspace(7,i)
+         enddo
+      else
+         do i=1,ntype(1)-ntype(2)
+            mspace(5,i) = v_m(1,i) + (dt0/2.)*mspace(20,i)
+            !mspace(6,i) = v_m(2,i) + (dt0/2.)*mspace(21,i)
+            mspace(7,i) = v_m(3,i) + (dt0/2.)*mspace(22,i)
+            mspace(2,i) = mspace(2,i) + dt0 * mspace(5,i)
+            !mspace(3,i) = mspace(3,i) + dt0 * mspace(6,i)
+            mspace(4,i) = mspace(4,i) + dt0 * mspace(7,i)
+         enddo
+      endif
+      
+      itimestep = itimestep + 1
+      t(itimestep) = itimestep * dt0 * pdt0
+
+      if (mod(itimestep,save_step).eq.0) then
+         itoutfile = itoutfile + 1
+         write(*,*)itoutfile,'......Saving file = ',outfile(itoutfile)
+         write(*,*)'iteration',itimestep,'time = ',t(itimestep)
+         
+         l = len_trim(outfile(itoutfile))
+         open(1,file=outfile(itoutfile)) 
+         nfluid = ntype(1)-ntype(2)
+         write(1,*)itimestep,t(itimestep),ntype(1),nfluid,ntype(2)   
+      
+         do i=1,ntype(1)-ntype(2)
+!c     write(1, *) i, (x(d, i),d = 1, dim), (vx(d, i),d = 1, dim),
+!c     +        mass (i), rho(i), p(i), u(i), itype(i), hsml(i), eta_c(i)
+          write(1,*)int(mspace(1,i)),real(mspace(2,i)),real(mspace(4,i)) &    
+               ,real(mspace(5,i)),real(mspace(7,i)),real(mspace(8,i))  &
+               ,real(mspace(9,i)),real(mspace(10,i)),real(mspace(11,i)) &
+               ,int(mspace(12,i)),real(mspace(13,i)),real(mspace(26,i)) &
+               ,real(mspace(18,i)), real(mspace(19,i))
+         enddo
+
+         close(1) 
+         write(*,*)'**********************************************'
+      endif
+      
+      if(itimestep.LT.fintime)goto 10
+! ===== END OF INTEGRATE======
+      
+    end subroutine D2_time_integration
+!c======================================================================
+
+      subroutine derivadas(i,t,xy,dxydt,mspace)
+      
+      implicit none 
+      include 'param.inc'
+
+      integer i
+      double precision t,xy(4),dxydt(4)
+      double precision mspace(25,nmax)
+
+      xy(1) = mspace(2,i)
+      xy(2) = mspace(4,i)
+      xy(3) = mspace(5,i)
+      xy(4) = mspace(7,i) 
+      
+      end
+      
+!c======================================================================
+      
+
+      SUBROUTINE rk4_dd(y,dydx,n,x,h,yout,derivs,mspace,id)
+
+      implicit none 
+      include 'param.inc'
+      
+      INTEGER n,NMAX1,id
+      double precision h,x,dydx(n),y(n),yout(n)
+      EXTERNAL derivs
+      PARAMETER (NMAX1=50)
+      INTEGER i
+      double precision h6,hh,xh,dym(NMAX1),dyt(NMAX1),yt(NMAX1)
+      double precision mspace(25,nmax)
+
+      
+      hh=h*0.5
+      h6=h/6.
+      write(*,*)'qqqqqqqqqqqq',x,id
+      xh=x+hh
+!c      do 11 i=1,n
+!c        yt(i)=y(i)+hh*dydx(i)
+!c11    continue
+!c      call derivs(id,xh,yt,dyt,mspace)
+!c      do 12 i=1,n
+!c        yt(i)=y(i)+hh*dyt(i)
+!c12    continue
+!c      call derivs(id,xh,yt,dym,mspace,id)
+!c      do 13 i=1,n
+!c        yt(i)=y(i)+h*dym(i)
+!c        dym(i)=dyt(i)+dym(i)
+!c13    continue
+!c      call derivs(id,x+h,yt,dyt,mspace,id)
+!c      do 14 i=1,n
+!c        yout(i)=y(i)+h6*(dydx(i)+dyt(i)+2.*dym(i))
+!c14    continue
+      return
+      END
+!C  (C) Copr. 1986-92 Numerical Recipes Software *!^3#!0Y..      
+
+
+
+
+      
+!c==========================================================================
+
+!c
+!c THIS SUBROUTINE MAKE AN ARRAY OF INFILES USING A BASE OF INFILE.
+
+      SUBROUTINE array_infilebase(infilebas,rangg,infile,step,nf)
+      implicit none
+
+      integer :: n, rangg(2), i, l, j, step, nf, k
+      character(len=80) :: infilebas
+      character(len=80) :: infile(20000)
+      character(len=1) :: ch1
+      character(len=2) :: ch2
+      character(len=3) :: ch3
+      character(len=4) :: ch4
+      character(len=5) :: ch5
+      character(len=6) :: ch6
+
+      do i = 1, 10000
+         infile(i) = ' '
+      enddo
+
+      l = len_trim(infilebas)
+      k = 0
+      
+      j=rangg(1)-1
+      DO 10 i=1,10000
+         j=j+1
+!c         if(mod(i,step).eq.1)then
+            if(j.le.rangg(2))then
+               k=k+1
+               if(j.lt.10)write(ch1,'(I1)')j
+               if(j.lt.10)infile(k)=infilebas(1:l)//'_000'//ch1
+               
+               if(j.ge.10.and.j.lt.100)write(ch2,'(I2)')j
+               if(j.ge.10.and.j.lt.100) &
+                    infile(k)=infilebas(1:l)//'_00'//ch2
+               
+               if(j.ge.100.and.j.lt.1000)write(ch3,'(I3)')j
+               if(j.ge.100.and.j.lt.1000) &
+                    infile(k)=infilebas(1:l)//'_0'//ch3
+               
+               if(j.ge.1000.and.j.lt.10000)write(ch4,'(I4)')j
+               if(j.ge.1000.and.j.lt.10000) &
+                    infile(k)=infilebas(1:l)//'_'//ch4
+               
+               if(j.ge.10000.and.j.lt.100000)write(ch5,'(I5)')j
+               if(j.ge.10000.and.j.lt.100000) &
+                    infile(k)=infilebas(1:l)//'_'//ch5
+               
+               if(j.ge.100000.and.j.lt.1000000)write(ch6,'(I6)')j
+               if(j.ge.100000.and.j.lt.1000000) &
+                    infile(k)=infilebas(1:l)//'_'//ch6
+               
+       !write(*,*)i,infile(i),j
+            endif
+!         endif
+ 10   CONTINUE
+      
+      nf = k
+      
+      RETURN
+      END      

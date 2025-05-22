@@ -1,0 +1,4 @@
+#
+cp examples/ej1/param.inc include/.
+make clean
+make sph

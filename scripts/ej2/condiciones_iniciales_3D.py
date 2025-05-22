@@ -1,0 +1,367 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+
+def generar_lamina_puntos(punto_inicial, lado1, lado2, angulo_azimutal, angulo_zenital, espacio_entre_puntos, plano="x-y"):
+    # Convertir ángulos de grados a radianes
+    angulo_azimutal = np.radians(angulo_azimutal)
+    angulo_zenital = np.radians(angulo_zenital)
+
+    # Crear vectores de los lados según el plano especificado
+    if plano == "x-y":
+        vector1 = np.array([1, 0, 0]) * lado1
+        vector2 = np.array([0, 1, 0]) * lado2
+    elif plano == "z-y":
+        vector1 = np.array([0, 0, 1]) * lado1
+        vector2 = np.array([0, 1, 0]) * lado2
+    elif plano == "z-x":
+        vector1 = np.array([0, 0, 1]) * lado1
+        vector2 = np.array([1, 0, 0]) * lado2
+    else:
+        raise ValueError("Plano no válido. Use 'x-y', 'z-y' o 'z-x'.")
+
+    # Matrices de rotación para los ángulos dados
+    Rz = np.array([
+        [np.cos(angulo_azimutal), -np.sin(angulo_azimutal), 0],
+        [np.sin(angulo_azimutal), np.cos(angulo_azimutal), 0],
+        [0, 0, 1]
+    ])
+
+    Ry = np.array([
+        [np.cos(angulo_zenital), 0, np.sin(angulo_zenital)],
+        [0, 1, 0],
+        [-np.sin(angulo_zenital), 0, np.cos(angulo_zenital)]
+    ])
+
+    # Aplicar la rotación de orientación
+    vector1 = Ry @ Rz @ vector1
+    vector2 = Ry @ Rz @ vector2
+
+    # Número de puntos en cada lado, incluyendo el extremo final
+    num_puntos_lado1 = int(np.floor(lado1 / espacio_entre_puntos)) #+ 1
+    num_puntos_lado2 = int(np.floor(lado2 / espacio_entre_puntos)) + 1
+
+    # Generar la malla de puntos en la lámina
+    puntos = []
+    for i in range(num_puntos_lado1):
+        for j in range(num_puntos_lado2):
+            punto = punto_inicial + i * espacio_entre_puntos * vector1 / lado1 + j * espacio_entre_puntos * vector2 / lado2
+            puntos.append(punto)
+
+    puntos = np.array(puntos)
+    return puntos
+    
+import numpy as np
+
+def generar_bloque_puntos(punto_inicial, lado1, lado2, altura, angulo_azimutal, angulo_zenital, espacio_entre_puntos, plano="x-y"):
+    """
+    Genera un bloque de puntos apilando múltiples láminas una encima de otra.
+
+    Parámetros:
+    - punto_inicial: np.array([x, y, z]), punto de inicio de la base del bloque.
+    - lado1: float, longitud del primer lado de la lámina.
+    - lado2: float, longitud del segundo lado de la lámina.
+    - altura: float, altura total del bloque (cantidad de capas * espacio entre capas).
+    - angulo_azimutal: float, ángulo azimutal de la orientación.
+    - angulo_zenital: float, ángulo zenital de la orientación.
+    - espacio_entre_puntos: float, distancia entre los puntos dentro de cada lámina.
+    - plano: str, define en qué plano se generan las láminas ("x-y", "z-y", "z-x").
+
+    Retorna:
+    - puntos: np.array con todas las coordenadas de los puntos en el bloque.
+    """
+
+    # Determinar el número de láminas en la altura
+    num_capas = int(np.floor(altura / espacio_entre_puntos)) + 1
+
+    # Lista para almacenar todas las láminas
+    puntos_bloque = []
+
+    # Direcciones de apilamiento según el plano
+    if plano == "x-y":
+        direccion_altura = np.array([0, 0, espacio_entre_puntos])
+    elif plano == "z-y":
+        direccion_altura = np.array([espacio_entre_puntos, 0, 0])
+    elif plano == "z-x":
+        direccion_altura = np.array([0, espacio_entre_puntos, 0])
+    else:
+        raise ValueError("Plano no válido. Use 'x-y', 'z-y' o 'z-x'.")
+
+    # Generar cada lámina y desplazarla en la dirección de la altura
+    for i in range(num_capas+1):
+        desplazamiento = i * direccion_altura
+        lamina = generar_lamina_puntos(punto_inicial + desplazamiento, lado1, lado2, angulo_azimutal, angulo_zenital, espacio_entre_puntos, plano)
+        puntos_bloque.append(lamina)
+
+    # Convertir la lista de puntos en un array de NumPy
+    puntos_bloque = np.vstack(puntos_bloque)
+    return puntos_bloque
+    
+
+def generar_sph_snapshot(X_topo, Y_topo, Z_topo, X_fluido=[], Y_fluido=[], Z_fluido=[], viscFluid=0.001002, viscWall=0.001002, deltaf=1, ddx=1, ht=1, x0=0, y0=0, filename='snapshot_000'):
+    # Constantes físicas
+    g = 9.82
+    gamma = 7.0
+    beta0 = 25.0
+    beta = beta0 * 1.0
+    #ht = max_altitud_original - min_altitud_original
+    c = beta * np.sqrt(2. * g * ht)
+    rho0 = 1000.0
+    b = rho0 * c * c / gamma
+    
+    paso_tiempo_Courant = 0.1 * (deltaf * 2) / ( c + np.sqrt(2. * g * ht)  )  
+
+
+    # Imprimir las constantes físicas
+    print('Constantes Físicas')
+    print(f'g = {g}')
+    print(f'gamma = {gamma}')
+    print(f'beta = beta0 * 1.0 = {beta}')
+    print(f'ht = {ht}')
+    print(f'c = beta * np.sqrt(2. * g * ht) = {c}')
+    print(f'rho0 = {rho0}')
+    print(f'b = rho0 * c * c / gamma = {b}')
+    print('paso_tiempo_Courant = ',paso_tiempo_Courant)
+    
+    # IDs y tipos de partículas
+    num_wall_particles = len(X_topo)
+    num_fluid_particles = len(X_fluido)
+    num_particles = num_wall_particles + num_fluid_particles
+
+    ids_fluid = np.arange(1, num_fluid_particles + 1)
+    ids_wall = np.arange(num_fluid_particles + 1, num_particles + 1)
+
+    # Imprimir información del SPH
+    print('========================== Variables para el SPH ')
+    print(f'num_wall_particles = {num_wall_particles}, num_fluid_particles = {num_fluid_particles}, num_particles = {num_particles}')
+    print(f'delta wall = {ddx}, delta fluid = {deltaf}')
+    print('==========================')
+
+    # Masa para las partículas
+    mass_wall = rho0 * deltaf**3
+    mass_fluid = rho0 * deltaf**3
+
+    print('mass wall =',mass_wall)
+
+    # Inicializar arrays para las propiedades de las partículas
+    velocities = np.zeros((num_particles, 3))
+    rho = np.zeros(num_particles)
+    pressure = np.zeros(num_particles)
+    mass = np.zeros(num_particles)
+    internal_energy = np.full(num_particles, 357.1)
+    itype = np.full(num_particles, -1)
+    hsml = np.full(num_particles, deltaf)
+    viscF = np.full(num_fluid_particles, viscFluid)
+    viscW = np.full(num_wall_particles, viscWall)
+
+    # Asignar tipos de partículas
+    itype[:num_fluid_particles] = 1  # Fluido
+
+    # Asignar propiedades a las partículas de fluido
+    for i in range(num_fluid_particles):
+        rho[i] = rho0 * (1 + (rho0 * g * (ht - abs(Z_fluido[i])) / b ))**(1.0 / gamma)
+        pressure[i] = b * ((rho[i] / rho0)**gamma - 1.0)
+        mass[i] = rho[i] * deltaf**3
+
+    # Asignar propiedades a las partículas de la topografía
+    rho[num_fluid_particles:] = rho0
+    pressure[num_fluid_particles:] = 0.0
+    mass[num_fluid_particles:] = mass_wall
+    itype[num_fluid_particles:] = -1  # Topografía
+
+    # Guardar los datos en un archivo
+    with open(filename, 'w') as f:
+        f.write(f"0   0.0   {num_particles}   {num_fluid_particles}   {num_wall_particles}\n")
+
+        # Escribir partículas de fluido
+        for i in range(num_fluid_particles):
+            f.write(f"{ids_fluid[i]}   {X_fluido[i]:.6f}   {Y_fluido[i]:.6f}   {Z_fluido[i]:.6f}   "
+                    f"{velocities[i, 0]:.6f}   {velocities[i, 1]:.6f}   {velocities[i, 2]:.6f}   {mass[i]:.6f}   {rho[i]:.6f}   "
+                    f"{pressure[i]:.6f}   {internal_energy[i]:.6f}   {itype[i]}   {hsml[i]:.6f} {viscF[i]:.6f}  0.0   0.0 \n")
+        
+        # Escribir partículas de la topografía   
+        for i in range(num_wall_particles):
+            j = num_fluid_particles + i
+            f.write(f"{ids_wall[i]}   {X_topo[i]:.6f}   {Y_topo[i]:.6f}   {Z_topo[i]:.6f}   "
+                    f"{velocities[j, 0]:.6f}   {velocities[j, 1]:.6f}   {velocities[j, 2]:.6f}   {mass[j]:.6f}   {rho[j]:.6f}   "
+                    f"{pressure[j]:.6f}   {internal_energy[j]:.6f}   {itype[j]}   {hsml[j]:.6f} {viscW[i]:.6f}  0.0  0.0 \n")
+
+    print(f"Datos guardados en {filename}")
+
+ax_global = None
+    
+def graficar_lamina_puntos1(puntos, color='b', escala=True,inigraf=True,fingraf=True):
+    global ax_global
+    
+    if inigraf or ax_global is None:
+        fig = plt.figure()
+        ax_global = fig.add_subplot(111, projection='3d')
+
+    # Extraer coordenadas x, y, z
+    x = puntos[:, 0]
+    y = puntos[:, 1]
+    z = puntos[:, 2]
+    
+    # Graficar los puntos
+    ax_global.scatter(x, y, z, c=color, s=10)
+    
+    # Configurar etiquetas
+    ax_global.set_xlabel('X')
+    ax_global.set_ylabel('Y')
+    ax_global.set_zlabel('Z')
+    ax_global.set_title('Lámina de Puntos en 3D')
+    
+    # Igualar escala en los ejes
+    if escala:
+    	max_range = np.array([x.max() - x.min(), y.max() - y.min(), z.max() - z.min()]).max() / 2.0
+
+    	mid_x = (x.max() + x.min()) * 0.5
+    	mid_y = (y.max() + y.min()) * 0.5
+    	mid_z = (z.max() + z.min()) * 0.5
+
+    	ax_global.set_xlim(mid_x - max_range, mid_x + max_range)
+    	ax_global.set_ylim(mid_y - max_range, mid_y + max_range)
+    	ax_global.set_zlim(mid_z - max_range, mid_z + max_range)
+
+    if fingraf:
+        plt.show()
+
+
+
+def calcular_limites_fortran(puntos):
+    """
+    Calcula los valores mínimos y máximos de x, y, z en una matriz de puntos
+    y los formatea en el estilo Fortran.
+
+    Parámetros:
+    - puntos: np.array de tamaño (N,3), donde cada fila es [x, y, z].
+
+    Retorna:
+    - Una cadena de texto con la sintaxis Fortran para definir los parámetros.
+    """
+    
+    print(len(puntos))
+    # Calcular valores mínimos y máximos
+    dxmin, dymin, dzmin = np.min(puntos, axis=0)
+    dxmax, dymax, dzmax = np.max(puntos, axis=0)
+
+    # Formatear salida en estilo Fortran
+    print(
+        f"      parameter ( dxmin = {dxmin}, dxmax = {dxmax} )\n"
+        f"      parameter ( dymin = {dymin}, dymax = {dymax} )\n"
+        f"      parameter ( dzmin = {dzmin}, dzmax = {dzmax} )"
+    )
+    
+
+        
+        
+
+
+# ---------------------- Generacion de canal ---------------------------------------------
+
+delta = 0.015/2#0.015/2  # Espacio entre puntos de pared
+#espacio_entre_puntos = delta*2 # Espacio entre puntos de fluido
+#altura = 0.3-espacio_entre_puntos*1.5  # Altura total del bloque
+#num_capas = int(np.floor(altura / espacio_entre_puntos)) + 1
+#h = np.linspace(0,altura,num_capas)
+#delta = (h[1]-h[0])/2.
+#espacio_entre_puntos = delta*2 # Espacio entre puntos de fluido
+#print('Delta exacto h0 = ',espacio_entre_puntos)
+
+# Parámetros del bloque
+espacio_entre_puntos = delta*2
+punto_inicial = np.array([espacio_entre_puntos*1.5, espacio_entre_puntos*1.5, espacio_entre_puntos*1.5])
+lado1 = 0.6-espacio_entre_puntos
+lado2 = 0.150-espacio_entre_puntos*3
+altura = 0.3-espacio_entre_puntos*3#*1.5  # Altura total del bloque
+angulo_azimutal = 0
+angulo_zenital = 0
+plano = "x-y"
+bloque_puntos = generar_bloque_puntos(punto_inicial, lado1, lado2, altura, angulo_azimutal, angulo_zenital, espacio_entre_puntos, plano)
+
+
+# Lamina 1
+print('Lamina 1, lamina inferior')
+punto_inicial = np.array([0, 0, 0])
+lado1 = 1.610  # Longitud del primer lado de la lámina, logitud real 7.1
+lado2 = 0.150   # Longitud del segundo lado de la lámina
+angulo_azimutal = 0  # Ángulo azimutal en grados
+angulo_zenital =  0  # Ángulo zenital en grados
+espacio_entre_puntos = delta # Espacio entre puntos en la lámina
+lamina1 = generar_lamina_puntos(punto_inicial, lado1, lado2, angulo_azimutal, angulo_zenital, espacio_entre_puntos, plano="x-y")
+graficar_lamina_puntos1(lamina1, color='black',escala=True,inigraf=True,fingraf=False)
+
+# Lamina 11
+print('Lamina 11, lateral derecho')
+punto_inicial = np.array([0, 0, delta])
+lado1 = 0.6  # Longitud del primer lado de la lámina
+lado2 = 1.610   # Longitud del segundo lado de la lámina
+angulo_azimutal = 0  # Ángulo azimutal en grados
+angulo_zenital =  0  # Ángulo zenital en grados
+espacio_entre_puntos = delta # Espacio entre puntos en la lámina
+lamina11 = generar_lamina_puntos(punto_inicial, lado1, lado2, angulo_azimutal, angulo_zenital, espacio_entre_puntos, plano="z-x")
+graficar_lamina_puntos1(lamina11, color='blue',escala=False,inigraf=False,fingraf=False)
+
+# Lamina 12
+print('Lamina 12, lateral izquiedo')
+punto_inicial = np.array([0, 0.15, delta])
+lado1 = 0.6  # Longitud del primer lado de la lámina
+lado2 = 1.610   # Longitud del segundo lado de la lámina
+angulo_azimutal = 0  # Ángulo azimutal en grados
+angulo_zenital =  0  # Ángulo zenital en grados
+espacio_entre_puntos = delta # Espacio entre puntos en la lámina
+lamina12 = generar_lamina_puntos(punto_inicial, lado1, lado2, angulo_azimutal, angulo_zenital, espacio_entre_puntos, plano="z-x")
+graficar_lamina_puntos1(lamina12, color='blue',escala=False,inigraf=False,fingraf=False)
+
+# Lamina 13
+print('Lamina 13, tapa trasera')
+punto_inicial = np.array([0, delta, 0+delta])
+lado1 = 0.6  # Longitud del primer lado de la lámina
+lado2 = 0.150-delta*2   # Longitud del segundo lado de la lámina
+angulo_azimutal = 0  # Ángulo azimutal en grados
+angulo_zenital =  0  # Ángulo zenital en grados
+espacio_entre_puntos = delta # Espacio entre puntos en la lámina
+lamina13 = generar_lamina_puntos(punto_inicial, lado1, lado2, angulo_azimutal, angulo_zenital, espacio_entre_puntos, plano="z-y")
+graficar_lamina_puntos1(lamina13, color='red',escala=False,inigraf=False,fingraf=False)
+
+# Lamina 14
+print('Lamina 14, lamina frontal')
+punto_inicial = np.array([1.610, delta, delta])
+lado1 = 0.6  # Longitud del primer lado de la lámina
+lado2 = 0.150-delta*2   # Longitud del segundo lado de la lámina
+angulo_azimutal = 0  # Ángulo azimutal en grados
+angulo_zenital =  -90  # Ángulo zenital en grados
+espacio_entre_puntos = delta # Espacio entre puntos en la lámina
+lamina14 = generar_lamina_puntos(punto_inicial, lado1, lado2, angulo_azimutal, angulo_zenital, espacio_entre_puntos, plano="x-y")
+graficar_lamina_puntos1(lamina14, color='red',escala=False,inigraf=False,fingraf=True)
+
+puntos = np.vstack((lamina1, lamina11, lamina12, lamina13, lamina14))
+graficar_lamina_puntos1(puntos, color='red',escala=True,inigraf=True,fingraf=True)
+
+
+graficar_lamina_puntos1(bloque_puntos, color='brown',escala=True,inigraf=True,fingraf=True)
+
+graficar_lamina_puntos1(puntos, color='gray',escala=True,inigraf=True,fingraf=False)
+graficar_lamina_puntos1(bloque_puntos, color='brown',escala=False,inigraf=False,fingraf=True)
+
+calcular_limites_fortran(puntos)
+
+
+# Extraer coordenadas x, y, z
+x = puntos[:, 0]
+y = puntos[:, 1]
+z = puntos[:, 2]
+
+X_fluido=bloque_puntos[:,0]
+Y_fluido=bloque_puntos[:,1]
+Z_fluido=bloque_puntos[:,2]
+
+ht = np.max(Z_fluido)
+print(' ========= Bloque de puntos para el fluido ===========')
+print('x_max = ',np.max(X_fluido))
+print('y_max = ',np.max(Y_fluido))
+print('z_max = ',ht)
+print('======================================================')
+
+generar_sph_snapshot(x, y, z, X_fluido, Y_fluido, Z_fluido, viscFluid=0.001002, viscWall=0.001002, deltaf=delta*2, ddx=delta, ht=ht, x0=0, y0=0, filename='snapshot_000')
+

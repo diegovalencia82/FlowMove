@@ -1,0 +1,130 @@
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize
+from matplotlib.cm import ScalarMappable
+
+def read_snapshot(filepath):
+    """
+    Lee los datos de un archivo snapshot.
+
+    Parámetros:
+    - filepath: ruta del archivo snapshot.
+
+    Retorna:
+    - time: tiempo del snapshot.
+    - data: array con los datos de las partículas.
+    """
+    with open(filepath, 'r') as file:
+        lines = file.readlines()
+        time = float(lines[0].split()[1])
+        lines = lines[1:]
+        data = np.array([[float(val) for val in line.split()] for line in lines])
+    return time, data
+
+
+def calculate_velocity(data):
+    """
+    Calcula la magnitud de la velocidad para cada partícula.
+
+    Parámetros:
+    - data: array con los datos de las partículas.
+
+    Retorna:
+    - velocity: array con la magnitud de la velocidad de cada partícula.
+    """
+    velocity = np.sqrt(data[:, 3]**2 + data[:, 4]**2)
+    return velocity
+
+
+def plot_snapshots_2d(data_frames, num_snapshots, rows, cols):
+    """
+    Genera un gráfico 2D con instantáneas distribuidas en filas y columnas.
+
+    Parámetros:
+    - data_frames: lista de tuplas con los datos de los snapshots.
+    - num_snapshots: número total de snapshots a leer.
+    - rows: número de filas en la gráfica.
+    - cols: número de columnas en la gráfica.
+    """
+    # Crear la figura y los subgráficos
+    fig, axes = plt.subplots(rows, cols, figsize=(15, 10), sharex=True, sharey=True, gridspec_kw={'wspace': 0.05, 'hspace': 0.05}) 
+    #fig.suptitle('Instantáneas en 2D', fontsize=16)
+    
+     # Añadir etiquetas compartidas para los ejes X y Z
+    fig.supxlabel('X')
+    fig.supylabel('Z')
+    
+    # Calcular el paso para distribuir los snapshots
+    step = num_snapshots // (rows * cols)
+    
+    
+    # Iterar sobre las filas y columnas
+    for i in range(rows):
+        for j in range(cols):
+            ax = axes[i, j]  # Obtener el subgráfico actual
+            idx = (i * cols + j) * step  # Calcular el índice del snapshot
+            if idx >= len(data_frames):
+                ax.axis('off')  # Desactivar ejes si no hay más snapshots
+                continue
+            time, data = data_frames[idx]
+            fluid_particles = data[data[:, 9] == 1]  # Filtrar partículas de fluido
+
+            velocity = calculate_velocity(fluid_particles)
+            norm = Normalize(vmin=0, vmax=np.sqrt(2*9.8*ht))
+            cmap = plt.get_cmap('coolwarm')#coolwarm copper
+            sm = ScalarMappable(norm=norm, cmap=cmap)
+            colors = sm.to_rgba(velocity)
+            
+            # Graficar las partículas
+            ax.scatter(fluid_particles[:, 1], fluid_particles[:, 2], color=colors, s=tamanop, alpha=0.8)
+            # Mostrar el tiempo dentro de la gráfica
+            ax.text(0.05, 0.95, f't = {time:.2f}', transform=ax.transAxes, ha='left', va='top', fontsize=12)
+            ax.set_xlim(x_min, x_max)
+            ax.set_ylim(z_min, z_max)
+            ax.set_aspect('equal')
+            ax.tick_params(axis='both', labelsize=12)  # Tamaño de fuente para los números de los ejes
+
+
+    cbar_ax = fig.add_axes([0.15, 0.95, 0.7, 0.02])
+    cbar = plt.colorbar(sm, cax=cbar_ax, orientation='horizontal')
+    cbar_ax.text(1.0, 1.3, 'Velocity magnitude', transform=cbar_ax.transAxes, ha='right', va='bottom', fontsize=12)
+            
+    plt.subplots_adjust(left=0.07, right=0.99, bottom=0.07, top=0.95, wspace=0.05, hspace=0.05)
+    #plt.savefig('fig_snapshots_2d.png', bbox_inches='tight', pad_inches=0)
+    plt.savefig('fig_snapshots_2d_water.png', bbox_inches='tight')
+    plt.show()
+
+def main():
+    global tamanop, ht, x_min, x_max, z_min, z_max
+    
+    # Entradas del usuario
+    tamanop = float(input("Tamaño de las partículas (presiona Enter para usar 0.1): ") or "0.1")
+    ht = float(input("Altura total (ht) (presiona Enter para usar 0.3): ") or "0.3")
+    x_min = float(input("Límite mínimo en X (presiona Enter para usar 0.0): ") or "0.0")
+    x_max = float(input("Límite máximo en X (presiona Enter para usar 1.61): ") or "1.61")
+    z_min = float(input("Límite mínimo en Z (presiona Enter para usar 0.0): ") or "0.0")
+    z_max = float(input("Límite máximo en Z (presiona Enter para usar 0.6): ") or "1.0")
+    
+    folder = input("Carpeta de los archivos snapshot (presiona Enter para usar ./): ") or "./"
+    num_snapshots = int(input("Número de snapshots a leer (presiona Enter para usar 2000): ") or "2000")
+    rows = int(input("Número de filas (presiona Enter para usar 3): ") or "3")
+    cols = int(input("Número de columnas (presiona Enter para usar 4): ") or "4")
+
+    # Leer los snapshots
+    data_frames = []
+    for i in range(0, num_snapshots+1):
+        filename = f'snapshot_{i:04d}'
+        filepath = os.path.join(folder, filename)
+        if os.path.exists(filepath):
+            print('Loading = ', filename)
+            time, data = read_snapshot(filepath)
+            data_frames.append((time, data))
+        else:
+            print(f'El archivo {filename} no existe en la carpeta especificada.')
+
+    # Generar la gráfica 2D
+    plot_snapshots_2d(data_frames, num_snapshots, rows, cols)
+
+if __name__ == "__main__":
+    main()

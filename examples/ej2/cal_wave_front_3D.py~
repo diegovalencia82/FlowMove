@@ -1,0 +1,210 @@
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Función para leer los datos de un snapshot desde un archivo
+def read_snapshot(filepath):
+    # Leer datos del archivo snapshot
+    with open(filepath, 'r') as file:
+        lines = file.readlines()
+        # Extraer el tiempo del segundo dato de la primera línea que contiene metadatos
+        time = float(lines[0].split()[1])
+        # Saltar la primera línea que contiene metadatos
+        lines = lines[1:]
+        # Convertir los datos restantes en una matriz numpy
+        data = np.array([[float(val) for val in line.split()] for line in lines])
+    return time, data
+
+# Función para leer el archivo de datos
+def read_data_file(filepath):
+    # Leer datos del archivo de experimento
+    with open(filepath, 'r') as file:
+        lines = file.readlines()
+        # Saltar la primera línea si es un comentario
+        if lines[0].startswith("#"):
+            lines = lines[1:]
+        # Convertir los datos en una matriz numpy
+        data = np.array([[float(val) for val in line.split()] for line in lines])
+    return data[:, 0], data[:, 1]  # Retornar las dos columnas por separado
+
+# Función para analizar los datos de un snapshot y calcular el promedio de las coordenadas de las partículas más cercanas a max_x
+def analyze_snapshot(data):
+    # Extraer vectores id, x, y, z, vx, vy, vz, mass, rho, p, u, itype, hsml, eta_c
+    ids = data[:, 0]
+    xs = data[:, 1]
+    ys = data[:, 2]
+    zs = data[:, 3]
+    vxs = data[:, 4]
+    vys = data[:, 5]
+    vzs = data[:, 6]
+    masses = data[:, 7]
+    rhos = data[:, 8]
+    ps = data[:, 9]
+    us = data[:, 10]
+    itypes = data[:, 11]
+    hsmls = data[:, 12]
+    eta_c = data[:, 13]
+
+    # Seleccionar solo las partículas que son del fluido (itype != -1)
+    fluid_particles = [(ids[i], xs[i], ys[i], zs[i], vxs[i], vys[i], vzs[i], masses[i], rhos[i], ps[i], us[i], itypes[i], hsmls[i], eta_c[i]) for i in range(data.shape[0]) if itypes[i] != -1]
+    fluid_particles = np.array(fluid_particles)
+    
+    # Obtener las coordenadas x de las partículas del fluido
+    x_fluid = fluid_particles[:, 1]
+    z_fluid = fluid_particles[:, 3]
+    max_x = np.max(x_fluid)
+    max_z = np.max(z_fluid)
+    
+    # Calcular las distancias de todas las partículas al valor máximo de x
+    distances = np.abs(x_fluid - max_x)
+    
+    # Encontrar los índices de las xx partículas más cercanas a max_x
+    closest_indices = np.argsort(distances)[:2]
+    
+    # Seleccionar las partículas más cercanas
+    closest_particles = fluid_particles[closest_indices]
+    
+    # Calcular el promedio de la coordenada x de las partículas seleccionadas
+    avg_x = np.mean(closest_particles[:, 1])
+    
+    # También se podrían calcular otros promedios como avg_z, avg_vx, avg_vz, etc., si se necesitan para la gráfica
+    # avg_z = np.mean(closest_particles[:, 2])
+    # avg_vx = np.mean(closest_particles[:, 3])
+    # avg_vz = np.mean(closest_particles[:, 4])
+    # avg_mass = np.mean(closest_particles[:, 5])
+    # avg_p = np.mean(closest_particles[:, 6])
+    # avg_rho = np.mean(closest_particles[:, 7])
+    # avg_u = np.mean(closest_particles[:, 8])
+    # avg_itype = np.mean(closest_particles[:, 9])
+    # avg_hsml = np.mean(closest_particles[:, 10])
+    
+    # Devolver el promedio de x y otros valores calculados si es necesario
+    return avg_x, max_x, max_z
+
+# Ruta de la carpeta donde se encuentran los archivos de snapshot
+folder = './'
+
+# Listas para almacenar los valores de avg_x y tiempo
+avg_x_values = []
+time_values = []
+max_x = 0
+max_z = 0
+max_xi = 0
+max_zi = 0
+
+# Iterar sobre los nombres de archivo del tipo 'snapshot_0001', 'snapshot_0002', ..., 'snapshot_0399'
+for i in range(0, 5):
+    # Formatear el nombre de archivo con el número de snapshot
+    filename = f'snapshot_{i:04d}'
+    print('Loading',i,filename)
+    # Crear la ruta completa al archivo
+    filepath = os.path.join(folder, filename)
+    
+    # Verificar si el archivo existe
+    if os.path.exists(filepath):
+        # Leer los datos del archivo snapshot y obtener el tiempo y los datos
+        time, data = read_snapshot(filepath)
+        
+        # Analizar los datos del snapshot para obtener el promedio de x de las partículas más cercanas a max_x
+        avg_x, max_x, max_z = analyze_snapshot(data)
+        if i == 0:
+            max_xi = max_x
+            max_zi = max_z
+        
+        # Almacenar los valores calculados de avg_x y tiempo
+        avg_x_values.append(avg_x)
+        time_values.append(time)
+    else:
+        # Si el archivo no existe, imprimir un mensaje de aviso
+        print(f'El archivo {filename} no existe en la carpeta especificada.')
+
+
+print('max_xi = ',max_xi,'max_zi =',max_zi)        
+# Leer los datos del archivo de experimento
+file_path = 'Fig12_01_ETSIN_Front_Dressler_Martin_2.dat'  # Reemplaza con la ruta real de tu archivo
+experiment_time, experiment_x = read_data_file(file_path)
+
+# Constantes
+g = 9.82
+H = max_zi
+B = max_xi
+
+# Convertir a NumPy arrays  TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+time_values = np.array(time_values) * 0.72#2.6/3.5#2.6 / 3.7#para muc 100  * 2.6 / 3.7
+avg_x_values = np.array(avg_x_values) - B
+
+time_graf = time_values * (g / H) ** 0.5
+avg_x_graf = avg_x_values  / H
+
+# Guardar los datos modificados en un archivo de salida 3333333##############################################################
+output_file = 'datos_comparacio.dat'
+np.savetxt(output_file, np.column_stack((time_graf, avg_x_graf)), delimiter='\t', header='Time\tModified Avg X', comments='')
+
+# Filtrar datos de avg_x_graf para obtener los residuos
+avg_x_graf_filt = []
+delt = (experiment_time[2] - experiment_time[1])/3.
+
+# Ajuste de la lista avg_x_graf_filt para que tenga el mismo número de elementos que experiment_x
+for i in range(len(experiment_time)):
+    filtered_avg_x = [avg_x_graf[j] for j in range(len(time_graf)) if experiment_time[i] - delt < time_graf[j] < experiment_time[i] + delt]
+    avg_x_graf_filt.append(np.mean(filtered_avg_x))
+
+# Convertir a numpy array
+avg_x_graf_filt = np.array(avg_x_graf_filt)
+            
+# Calcular la diferencia entre los datos
+difference = avg_x_graf_filt - experiment_x
+            
+# Crear la figura y graficar
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10), gridspec_kw={'height_ratios': [4, 1]}, sharex=True)
+
+# Graficar los datos calculados (línea delgada) ##########################################################################
+ax1.plot(time_graf , avg_x_graf, label='m01: $\kappa=2.0$, β=1 $muc = 500 $ fT = 0.69', marker='', linestyle='-', color='black')
+# Graficar los datos del experimento (puntos pequeños)
+ax1.plot(experiment_time, experiment_x, label='Result of ETSIN experiment', marker='o', markersize=0.5, linestyle='', color='black')
+ax1.legend(fontsize=12)
+ax1.set_xlim(0., 3)
+ax1.set_ylim(0., 4)
+ax1.set_ylabel('$x/H, H=0.3$ m ',fontsize=14)
+ax1.legend()
+#ax1.grid(True)
+
+# Subplot para los residuos
+ax2.plot(experiment_time, difference, label='', marker='o', markersize=0.5, linestyle='', color='black')
+ax2.legend(fontsize=12)
+ax2.axhline(0, color='k', linestyle='--', linewidth=0.5)
+ax2.set_xlabel('$t(g/H)^{1/2}$', fontsize=14)
+ax2.set_ylabel('Residuals', fontsize=14)
+#ax2.legend()
+#ax2.grid(True)
+
+# Ajustar los ticks del eje y para evitar superposición
+ax1.set_yticks(np.arange(0, 4, 0.5))  # Ajustar los ticks a intervalos de 1 en la primera gráfica
+ax2.set_yticks([-0.3, -0.15, 0.0])  # Ajustar los ticks a los numeros deseados
+
+# Asegurarse de que las etiquetas de los ticks del segundo subplot aparezcan
+ax2.tick_params(axis='x', which='both', labelbottom=True)
+
+# Añadir ticks en el eje x del primer subplot, pero sin etiquetas
+ax1.set_xticks(np.arange(0, 2.8, 0.5))  # Ajustar los ticks en el eje x
+ax1.set_xticklabels([])  # No mostrar las etiquetas en el eje x del primer subplot
+
+# Asegurarse de que las etiquetas de los ticks del segundo subplot aparezcan
+ax2.set_xticks(np.arange(0, 2.8, 0.5))
+ax2.set_xticklabels(np.arange(0, 2.8, 0.5))  # Especificar las etiquetas de los ticks
+
+# Ajustar los ticks del primer subplot para que estén hacia dentro
+ax1.tick_params(axis='x', direction='in', length=6)
+ax1.tick_params(axis='y', direction='in', length=6)
+ax1.xaxis.set_ticks_position('both')
+ax1.yaxis.set_ticks_position('both')
+
+# Ajustar el espaciado entre los subplots para que estén pegados
+plt.tight_layout()
+plt.subplots_adjust(hspace=0.0)
+
+# Guardar la figura en formato PNG ##############################################################################3
+plt.savefig('fig_comparacion.png', format='png', dpi=300)
+
+plt.show()
+

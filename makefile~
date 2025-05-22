@@ -1,0 +1,38 @@
+# Opciones de compilación
+GFORTFLAGS = -fno-second-underscore -fopenmp -frecursive -fstack-arrays -ffree-line-length-none -Iinclude
+
+# Directorios
+SRC_DIR = src
+OBJ_DIR = obj
+INC_DIR = include
+
+# Lista de archivos fuente en src/
+SRC = $(wildcard $(SRC_DIR)/*.f90)
+
+# Lista de objetos en obj/
+OBJ = $(patsubst $(SRC_DIR)/%.f90, $(OBJ_DIR)/%.o, $(SRC))
+
+# Nombre del ejecutable
+EXEC = sph
+
+# Crear la carpeta obj si no existe
+$(OBJ_DIR):
+	mkdir -p $(OBJ_DIR)
+
+# Regla de limpieza
+clean:
+	rm -f $(OBJ_DIR)/*.o mysph.a $(EXEC)
+
+# Compilar cada archivo .f90 en su correspondiente .o dentro de obj/
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.f90 | $(OBJ_DIR)
+	gfortran $(GFORTFLAGS) -c $< -o $@
+
+# Crear biblioteca estática
+mysph.a: $(OBJ)
+	ar rcs mysph.a $(OBJ)
+
+# Compilar el ejecutable final
+$(EXEC): $(SRC_DIR)/sph.f90 mysph.a
+	gfortran $(GFORTFLAGS) -o $(EXEC) $(SRC_DIR)/sph.f90 mysph.a
+	rm -f $(OBJ_DIR)/*.o
+

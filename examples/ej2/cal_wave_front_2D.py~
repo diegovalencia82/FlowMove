@@ -1,0 +1,184 @@
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+
+def read_snapshot(filepath):
+    """Lee archivos snapshot ignorando coordenada Y y velocidad Vy"""
+    with open(filepath, 'r') as file:
+        lines = file.readlines()
+        time = float(lines[0].split()[1])
+        lines = lines[1:]
+        # Leer solo 12 columnas (excluyendo Y y Vy)
+        data = np.array([[float(val) for val in line.split()[:12]] for line in lines])
+    return time, data
+
+def read_data_file(filepath):
+    """Lee datos experimentales"""
+    with open(filepath, 'r') as file:
+        lines = file.readlines()
+        if lines[0].startswith("#"):
+            lines = lines[1:]
+        data = np.array([[float(val) for val in line.split()] for line in lines])
+    return data[:, 0], data[:, 1]
+
+def analyze_snapshot(data):
+    """Analiza datos en 2D (X-Z)"""
+    # Nuevos índices para datos 2D
+    ids = data[:, 0]
+    xs = data[:, 1]   # Antigua X
+    ys = data[:, 2]   # Coordenada y
+    zs = data[:, 3]   # Coordenada z
+    vxs = data[:, 4]  #  Vx
+    vys = data[:, 5]  #  Vy
+    vzs = data[:, 6]  #  Vz
+    masses = data[:, 7]
+    rhos = data[:, 8]
+    ps = data[:, 9]
+    us = data[:, 10]
+    itypes = data[:, 11]
+    hsmls = data[:, 12]
+    eta_c = data[:, 13]
+
+    # Filtrar partículas de fluido
+    fluid_mask = itypes != -1
+    fluid_particles = data[fluid_mask]
+    
+    # Obtener coordenadas X-Z
+    x_fluid = fluid_particles[:, 1]
+    z_fluid = fluid_particles[:, 2]
+    max_x = np.max(x_fluid)
+    max_z = np.max(z_fluid)
+    
+    # Calcular distancias a máximo X
+    distances = np.abs(x_fluid - max_x)
+    closest_indices = np.argsort(distances)[:2]
+    closest_particles = fluid_particles[closest_indices]
+    
+    return np.mean(closest_particles[:, 1]), max_x, max_z
+
+def analizar_residuales(residuals):
+    """
+    Calcula el promedio y medidas de dispersión de los residuales.
+    
+    Parámetros:
+    residuals -- array con los valores residuales
+    
+    Retorna:
+    Un diccionario con:
+    - promedio: valor medio de los residuales
+    - desviacion_std: desviación estándar
+    - varianza: varianza de los datos
+    - rango: diferencia entre max y min
+    - mad: desviación absoluta media
+    - iqr: rango intercuartílico
+    """
+    resultados = {}
+    
+    # Cálculo del promedio
+    resultados['promedio'] = np.mean(residuals)
+    
+    # Cálculo de medidas de dispersión
+    resultados['desviacion_std'] = np.std(residuals, ddof=1)  # ddof=1 para muestra
+    resultados['varianza'] = np.var(residuals, ddof=1)
+    resultados['rango'] = np.max(residuals) - np.min(residuals)
+    resultados['mad'] = np.mean(np.abs(residuals - resultados['promedio']))
+    
+    # Rango intercuartílico
+    q75, q25 = np.percentile(residuals, [75, 25])
+    resultados['iqr'] = q75 - q25
+    
+    return resultados
+
+
+# Configuración principal (sin cambios)
+folder = './'
+avg_x_values = []
+time_values = []
+max_xi = max_zi = 0
+
+for i in range(140):
+    filename = f'snapshot_{i:04d}'
+    filepath = os.path.join(folder, filename)
+    
+    if os.path.exists(filepath):
+        time, data = read_snapshot(filepath)
+        avg_x, max_x, max_z = analyze_snapshot(data)
+        
+        if i == 0:
+            max_xi, max_zi = max_x, max_z
+            
+        avg_x_values.append(avg_x)
+        time_values.append(time)
+
+# Procesamiento de datos y gráficos (sin cambios)
+H, B = 0.3, 0.6  # Valores de referencia
+time_array = np.array(time_values) * (9.82 / H)**0.5
+x_array = (np.array(avg_x_values) - B) / H
+
+# Guardado y gráficos
+experiment_time, experiment_x = read_data_file('Fig12_01_ETSIN_Front_Dressler_Martin_2.dat')
+
+# Configuración de estilo
+#plt.style.use('seaborn-v0_8')
+plt.rcParams.update({
+    'font.size': 14,
+    'axes.titlesize': 14,
+    'axes.labelsize': 14,
+    'xtick.labelsize': 12,
+    'ytick.labelsize': 12,
+    'legend.fontsize': 12
+})
+
+# Crear figura
+fig, ax = plt.subplots(figsize=(10, 7))
+
+# Graficar datos
+ax.plot(time_array, x_array, 'k-', linewidth=2, label='Model 2D')
+ax.plot(experiment_time, experiment_x, 'o', color='grey', 
+        markersize=5, markerfacecolor='none', markeredgewidth=1.5,
+        label='Experimental data')
+
+# Configuración de ejes
+ax.set(xlabel='$t(g/H)^{1/2}$', ylabel='$x/H$', 
+       xlim=(0, 2.7), ylim=(0, 3.6))
+ax.grid(True, linestyle=':', alpha=0.7)
+
+# Cálculo de estadísticas
+filtered_x = [np.mean(x_array[(time_array >= t-0.1) & (time_array <= t+0.1)]) 
+              for t in experiment_time]
+residuals = filtered_x - experiment_x
+stats = analizar_residuales(residuals)
+
+# Leyenda de curvas en esquina superior izquierda
+legend_curves = ax.legend(
+    loc='upper left',
+    bbox_to_anchor=(0.02, 0.98),
+    frameon=True,
+    framealpha=0.9,
+    edgecolor='gray',
+    borderpad=0.8
+)
+
+# Texto estadístico en esquina inferior derecha
+stats_text = (f'Residual statistics:\n'
+              f'• Range: {stats["rango"]:.3f}\n'
+              f'• σ: {stats["desviacion_std"]:.3f}')
+
+stats_box = ax.text(
+    0.98, 0.03, stats_text, 
+    transform=ax.transAxes,
+    ha='right', 
+    va='bottom',
+    fontsize=12,
+    bbox=dict(
+        facecolor='white',
+        alpha=0.9,
+        edgecolor='gray',
+        boxstyle='round,pad=0.5'
+    )
+)
+
+# Ajustar layout
+plt.tight_layout()
+plt.savefig('comparacion_2D.png', dpi=300, bbox_inches='tight')
+plt.show()
